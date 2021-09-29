@@ -21,4 +21,8 @@ https://github.com/OfficialLambdax/_netcode_Proxy-UDF
 
 https://github.com/OfficialLambdax/_netcode_Relay-UDF
 
+https://github.com/OfficialLambdax/_netcode_P2PCentralized-UDF
+
+https://github.com/OfficialLambdax/_netcode_P2PDecentralized-UDF
+
 Why do i develop addons before i finish the Core? Because i yet have to figure out what all needs to be in the Core to make the Addons work smooth without much additional code or Core code replacements.
