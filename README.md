@@ -14,7 +14,9 @@ I try to create a very performant and secure TCP UDF for Autoit3. The aim is to 
 The lib is compatible with X32 and X64. You can use the Autoit Stable or Beta Release. Beta IS faster.
 
 The UDF right now has two modes to send data. Either the 'netcode' variant where each data to be send is wrapped up or the 'rawlinked' variant where data is send as is.
+
 'netcode' = 60 mb/s (on my pc)
+
 'rawlinked' = 190 mb/s (on my pc)
 
 There are also addons
