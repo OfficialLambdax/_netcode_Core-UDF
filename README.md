@@ -19,6 +19,9 @@ The UDF right now has two modes to send data. Either the 'netcode' variant where
 
 'rawlinked' = 190 mb/s (on my pc)
 
+The UDF also uses 'select' to only manage sockets that have anything in the buffer. So the UDF can hold thousands of sockets with no noticable lag. The main loop takes 0.15ms with zero sockets and 1.5ms with 1000 ideling sockets (on my pc).
+
+
 There are also addons
 
 https://github.com/OfficialLambdax/_netcode_Router-UDF
