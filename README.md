@@ -17,7 +17,7 @@ _netcode is going to Offer
 - Anti DDOS        - It is meant that the UDF comes at default with a Rule set to combat DDOS attacks that automatically engage when certain behaviours are recognized by a client or multiple
 - Scallable        - There will be a Addon specific to automatically Sync data between processes, and a Addon ment to offer Groups where sockets can be linked to. So that all can share and use the same data pool.
 - User Management  - The Core will come at default with a Optional User Management. If enabled for the Listener then every Client has to provide a Username and Password in order to sucessfully stage through. The Database is not ment to be basic. It is ment to have an Active Userdatabase thats always loaded in the memory, a inactive Database for larger data sets and a encrypted db which only the specific user has access to (think of Tutanota). Overall all kinds of Rules and Events can be linked to users and etc. The feature will also allow for 2FA authentications.
-- Manageable       - The UDF makes use of 'select' to that only the active sockets get managed. The loop takes 1.5 ms with 1000 inactive loops and 0.15 ms with none (test results from my pc)
+- Manageable       - The UDF makes use of 'select' to that only the active sockets get managed. The loop takes 1.5 ms with 1000 inactive sockets and 0.15 ms with none (test results from my pc)
 
 
 There are also addons
