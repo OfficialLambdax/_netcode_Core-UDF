@@ -4,7 +4,7 @@ a extended TCP/TLS/IPv4/IPv6 UDF for Autoit3 (Support for Win XP, Vista, 7, 8, 8
 Beaware that the UDF (User Defined Functions) is neither Alpha nor Beta or Stable. It is still in its Concept Creation Phase. This means that features a missing eg. IPv6 and TLS and that already included Features require complete Overhauls. So its best that you do not use it yet. There also is little to no Documentation yet (including UDF headers), because its pointless to create a whole .chm yet where everything is still subject to change.
 
 
-The UDF is ment to be Stable, Easy to use, Performant, Secure and Configurable. And overall ment to offer code for any network related usages. Autoit3 already has alot of TCP UDF's but through my testings i found that most, not to say all, are to slow, insecure and just have the bare minimum feature set. I had to create something that can be used in as many situations as possible.
+The UDF is ment to be Stable, Easy to use, Performant, Secure and Configurable. And overall ment to offer code for any network related usages. Autoit3 already has alot of TCP UDF's but through my testings i wasnt satisfied with any of them in terms of speed, secureness and the feature set. I had to create something that can be used in as many situations as possible.
 
 _netcode is going to Offer
 - Security         - TLS v1.2 and v1.3 (AES-256-GCM, AES-256-CBC, RSA, and your customs)
