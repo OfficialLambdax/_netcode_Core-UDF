@@ -1,25 +1,23 @@
 # _netcode_Core-UDF
-a extended TCP/TLS/IPv4/IPv6 UDF for Autoit3
+a extended TCP/TLS/IPv4/IPv6 UDF for Autoit3 (Support for Win XP, Vista, 7, 8, 8.1, 10 - X32 and X64 - Autoit Stable and Beta)
 
-DO NOT USE.
-This lib is neither a stable release nor a Beta or a Alpha. This isnt even a prerelease. The lib is still in the concept creation phase.
-It is unsafe to use, major and minior bugs exists. Everything is subject to change and many yet already thought out systems arent included. On the other hand there are features already included that need complete overhauls etc. TLS and IPv6 is missing too.
-
-There is little to zero documentation and no support for anything. I just uploaded it here for me to have access to it from everyhwere and to speak with other devs about certain ideas.
+Beaware that the UDF (User Defined Functions) is neither Alpha nor Beta or Stable. It is still in its Concept Creation Phase. This means that features a missing eg. IPv6 and TLS and that already included Features require complete Overhauls. So its best that you do not use it yet. There also is little to no Documentation yet (including UDF headers), because its pointless to create a whole .chm yet where everything is still subject to change.
 
 
-However if you are still interested in what this is about:
-I try to create a very performant and secure TCP UDF for Autoit3. The aim is to make it very easy to use too and to provide many options. This lib is ment to be opensource and ment to be used in a variety of systems, ranging from personal to coorperate usages while also providing usefullness and security to not so experiences coders. The UDF is event based, packages the data, encrypts it in all kinds of desired ways and so on. It is ment todo everything for you that is netcode related, while keeping it easy, fast, scallable and secure. The UDF also can identify corrupted and missing packets and either repairs them or requests resends while making sure that the packets are executed in order and lots more. An Optional User Database with Optional 2FA authentication is going to be part of it too. It is quite the ambitious project and to be honest alot of the knowledge fields i have yet never touched before. So it takes time to bring this through the Concept phase into alpha.
+The UDF is ment to be Stable, Easy to use, Performant, Secure and Configurable. And overall ment to offer code for any network related usages. Autoit3 already has alot of TCP UDF's but through my testings i found that most, not to say all, are to slow, insecure and just have the bare minimum feature set. I had to create something that can be used in as many situations as possible.
 
-The lib is compatible with X32 and X64. You can use the Autoit Stable or Beta Release. Beta IS faster.
-
-The UDF right now has two modes to send data. Either the 'netcode' variant where each data to be send is wrapped up or the 'rawlinked' variant where data is send as is.
-
-'netcode' = 60 mb/s (on my pc)
-
-'rawlinked' = 190 mb/s (on my pc)
-
-The UDF also uses 'select' to only manage sockets that have anything in the buffer. So the UDF can hold thousands of sockets with no noticable lag. The main loop takes 0.15ms with zero sockets and 1.5ms with 1000 ideling sockets (on my pc).
+_netcode is going to Offer
+- Security         - TLS v1.2 and v1.3 (AES-256-GCM, AES-256-CBC, RSA, and your customs)
+- Speed            - 'netcode' managemode = 60 mb/s, 'rawlinked' managemode = 190 mb/s - tested on my pc
+- Compatibility    - IPv4 and IPv6, Windows XP, Vista, 7, 8, 8.1, 10
+- Configurability  - Each and every Server and Client can be configured independent from another. Completly different rule sets can be applied to each and every socket if necessary.
+- Interchangeable  - Every Function will be overwriteable aka replaceable without the need of doing actual code changes inside the UDF
+- Interceptable    - It is ment to have a variety of options to intercept UDF processes to identify and / or protect against attacks and to solve certain errors that may arise
+- Error Manageable - The UDF features a tracer to trace down all processes to identify errors and alike. A machine friendly to read error list that can call on set callbacks is ment to be included too
+- Anti DDOS        - It is meant that the UDF comes at default with a Rule set to combat DDOS attacks that automatically engage when certain behaviours are recognized by a client or multiple
+- Scallable        - There will be a Addon specific to automatically Sync data between processes, and a Addon ment to offer Groups where sockets can be linked to. So that all can share and use the same data pool.
+- User Management  - The Core will come at default with a Optional User Management. If enabled for the Listener then every Client has to provide a Username and Password in order to sucessfully stage through. The Database is not ment to be basic. It is ment to have an Active Userdatabase thats always loaded in the memory, a inactive Database for larger data sets and a encrypted db which only the specific user has access to (think of Tutanota). Overall all kinds of Rules and Events can be linked to users and etc. The feature will also allow for 2FA authentications.
+- Manageable       - The UDF makes use of 'select' to that only the active sockets get managed. The loop takes 1.5 ms with 1000 inactive loops and 0.15 ms with none (test results from my pc)
 
 
 There are also addons
