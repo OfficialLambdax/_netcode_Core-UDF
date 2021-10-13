@@ -13,6 +13,10 @@
 		will no longer slow down the speed of the others. However __netcode_SendPacketQuo() is marked for recoding because its
 		current codework is inefficient.
 		
+		- The Globals vars on the beginning of the UDF are now sorted and feature describtions. These Options can be changed at
+		will. This is temporary. These Globals will be removed and linked to each parent and client so that each socket can
+		have its own set of settings. You will have to use the options functions to change settings then.
+		
 	Upgrades
 		- Duo to the changes of the packet quo and tcp send feature the UDF got faster:
 			'netcode' managemode got up to ~71 MB/s
