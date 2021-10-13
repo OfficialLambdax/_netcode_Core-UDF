@@ -8,7 +8,7 @@ The UDF is ment to be Stable, Easy to use, Performant, Secure and Configurable. 
 
 _netcode is going to Offer
 - Security         - TLS v1.2 and v1.3 (AES-256-GCM, AES-256-CBC, RSA, and your customs)
-- Speed            - 'netcode' managemode = 60 mb/s, 'rawlinked' managemode = 190 mb/s - tested on my pc
+- Speed            - 'netcode' managemode = ~71 mb/s, 'rawlinked' managemode = ~210 mb/s - tested on my pc
 - Compatibility    - IPv4 and IPv6, Windows XP, Vista, 7, 8, 8.1, 10
 - Configurability  - Each and every Server and Client can be configured independent from another. Completly different rule sets can be applied to each and every socket if necessary.
 - Interchangeable  - Every Function will be overwriteable aka replaceable without the need of doing actual code changes inside the UDF
