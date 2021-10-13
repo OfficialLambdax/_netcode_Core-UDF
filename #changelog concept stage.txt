@@ -1,0 +1,20 @@
+13.10.2021 (DD/MM/YYYY) 0.1.1
+	Fixes
+		- If $bWaitForFloodPrevention was set to True (Default) in _netcode_TCPSend() while the function waited for the Partners
+		Buffer to be empty enough to quo up new data, but the socket disconnected in the mean time, then the Func became stuck
+		and threw alot of errors. This is fixed. The func now checks if the socket still exists before it calls
+		_netcode_RecvManageExecute() and if not then returns @extended = 1 and "Socket is no longer known or disconnected" if
+		the Tracer is enabled.
+	
+	Changes
+		- __netcode_SendPacketQuo() was recoded and __netcode_TCPSend() got the optional param to no longer wait for 'send' to
+		succeed. __netcode_SendPacketQuo() was recoded in a way that the func will no longer block until the quod data is send.
+		The UDF now much better utilizes the non blocking feature. So a slower client, in terms of internet speed or latency,
+		will no longer slow down the speed of the others. However __netcode_SendPacketQuo() is marked for recoding because its
+		current codework is inefficient.
+		
+	Upgrades
+		- Duo to the changes of the packet quo and tcp send feature the UDF got faster:
+			'netcode' managemode got up to ~71 MB/s
+			'rawlinked' managemode got up to ~210 MB/s
+		

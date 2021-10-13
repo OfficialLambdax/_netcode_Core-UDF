@@ -132,6 +132,7 @@ Global $__net_sSerializeArrayYSeperator = '152b7l27E6' ; 10 bytes
 Global $__net_sSerializeArrayXSeperator = '3615RW0117' ; 10 bytes
 Global $__net_nMaxPasswordLen = 30 ; max password len for the User Stage. If the StringLen is > this then it will deny the login
 Global $__net_arPacketSendQue[0]
+Global $__net_arPacketSendQueWait[0]
 Global $__net_arGlobalIPList[0]
 Global $__net_bGlobalIPListIsWhitelist = False
 Global $__net_hInt_bcryptdll = -1 ; bcrypt.dll handle
@@ -147,7 +148,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1"
+Global Const $__net_sNetcodeVersion = "0.1.1"
 Global Const $__net_sNetcodeVersioBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 Global $__net_bTraceEnable = False ; toggling it could result in a hard crash. All other can be toggled anytime
 Global $__net_bTraceLogEnable = False
@@ -612,7 +613,16 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 		If StringLen($sPackage) > $__net_nMaxRecvBufferSize Then Return SetError(10, 0, False) ; this packet is to big to ever get send
 		If Not $bWaitForFloodPrevention Then ExitLoop
 
-		If $nError Then _netcode_RecvManageExecute($hSocket)
+		If $nError Then
+			; check if socket still exists
+			if Not __netcode_CheckSocket($hSocket) Then
+				__Trace_Error($nError, 1, "Socket is no longer known or disconnected")
+				Return SetError($nError, 1, __Trace_FuncOut("_netcode_TCPSend", False))
+			EndIf
+
+			; recv manage execute
+			_netcode_RecvManageExecute($hSocket)
+		EndIf
 	Until $nError = 0
 
 	If $nError Then
@@ -2035,18 +2045,112 @@ Func __netcode_AddPacketToQue(Const $hSocket, $sPackage)
 	__Trace_FuncOut("__netcode_AddPacketToQue")
 EndFunc   ;==>__netcode_AddPacketToQue
 
+#cs
+	Each packet quoed up in _netcode_TCPSend() is here given to the 'send' function.
+	__netcode_TCPSend() is set to return even if the send is yet not done (duo to it being non blocking).
+	If 'send' returns 10035 (would block) then this func will store the send data to the storage var "_netcode_PacketQuoSend"
+	and the socket to the $__net_arPacketSendQueWait Global var.
+	The next time this func is called it will check each socket in $__net_arPacketSendQueWait to see if
+	'send' reports a different error then 10035 (would block). If so then it removes the socket from the $__net_arPacketSendQueWait
+	array and reset the storage var "_netcode_PacketQuoSend".
+
+	If a socket is in $__net_arPacketSendQueWait then no new data is given to 'send' until the previous data is successfully
+	send.
+
+	So this function makes sure the data is send in order but will not block until 'send' reports it as send.
+	This is usefull in a situation where a client of multiple has a much slower internet connection.
+	Usually this client would then slow down the whole UDF. But with this system that doesnt happen.
+#ce
+; note - inefficient
+; marked for recoding
 Func __netcode_SendPacketQuo()
 	__Trace_FuncIn("__netcode_SendPacketQuo")
 	Local $nArSize = UBound($__net_arPacketSendQue)
-	If $nArSize = 0 Then Return __Trace_FuncOut("__netcode_SendPacketQuo")
+	Local $nArSizeWait = UBound($__net_arPacketSendQueWait)
+	If $nArSize = 0 And $nArSizeWait = 0 Then Return __Trace_FuncOut("__netcode_SendPacketQuo")
 
+	; check if 'send' reported back that it has send the data
+	if $nArSizeWait > 0 Then
+		Local $arTempSendQuo = $__net_arPacketSendQueWait
+		Local $nIndex = -1
+
+		; for each socket in $__net_arPacketSendQueWait
+		For $i = 0 To $nArSizeWait - 1
+
+			; take the last send data and check if 'Send' reports that it is send
+			__netcode_TCPSend($arTempSendQuo[$i], StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuoSend')), False)
+
+			; if it is send then remove the socket from the wait quo
+			if @error <> 10035 Then
+				_storageS_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoSend', "")
+
+				; if its the only socket in the list then reset the array
+				if UBound($__net_arPacketSendQueWait) = 1 Then
+					ReDim $__net_arPacketSendQueWait[0]
+					ContinueLoop
+				EndIf
+
+				; find the socket in the array
+				$nIndex = -1
+				For $iS = 0 to UBound($__net_arPacketSendQueWait) - 1
+					if $__net_arPacketSendQueWait[$iS] = $arTempSendQuo[$i] Then
+						$nIndex = $iS
+						ExitLoop
+					EndIf
+				Next
+				if $nIndex = -1 Then Exit MsgBox(16, "Development error", "36923638942342698 CTRL+F me in _netcode_Core.au3") ; this error should never happen, but if does then because of a programming mistake in this UDF
+
+				; remove the socket
+				$__net_arPacketSendQueWait[$nIndex] = $__net_arPacketSendQueWait[UBound($__net_arPacketSendQueWait) - 1]
+				ReDim $__net_arPacketSendQueWait[UBound($__net_arPacketSendQueWait) - 1]
+			EndIf
+		Next
+		$nArSizeWait = UBound($__net_arPacketSendQueWait)
+	EndIf
+
+	Local $sData = "", $arTempSendQuo = $__net_arPacketSendQue, $nIndex = -1
 	For $i = 0 To $nArSize - 1
-		__netcode_TCPSend($__net_arPacketSendQue[$i], StringToBinary(_storageS_Read($__net_arPacketSendQue[$i], '_netcode_PacketQuo')))
-;~ 		__netcode_TCPSend($__net_arPacketSendQue[$i], _storageS_Read($__net_arPacketSendQue[$i], '_netcode_PacketQuo'))
-		_storageS_Overwrite($__net_arPacketSendQue[$i], '_netcode_PacketQuo', '')
+		if $nArSizeWait > 0 Then
+			; if the current socket already has quoed to send data where the 'send' function hasnt yet reported back that it has send the data then
+			; skip this socket
+			For $iS = 0 To $nArSizeWait - 1
+				if $__net_arPacketSendQueWait[$iS] = $arTempSendQuo[$i] Then ContinueLoop 2
+			Next
+		EndIf
+
+		$sData = _storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo')
+		__netcode_TCPSend($arTempSendQuo[$i], StringToBinary($sData), False)
+
+		if @error = 10035 Then
+			_storageS_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoSend', $sData)
+			ReDim $__net_arPacketSendQueWait[UBound($__net_arPacketSendQueWait) + 1]
+			$__net_arPacketSendQueWait[UBound($__net_arPacketSendQueWait) - 1] = $arTempSendQuo[$i]
+		EndIf
+
+		_storageS_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuo', '')
+
+		; remove the socket from the send quo
+
+		; if its the only socket in the list then reset the array
+		if UBound($__net_arPacketSendQue) = 1 Then
+			ReDim $__net_arPacketSendQue[0]
+			ContinueLoop
+		EndIf
+
+		; search and remove the last socket from the array
+		$nIndex = -1
+		For $iS = 0 To UBound($__net_arPacketSendQue) - 1
+			if $__net_arPacketSendQue[$iS] = $arTempSendQuo[$i] Then
+				$nIndex = $iS
+				ExitLoop
+			EndIf
+		Next
+		if $nIndex = -1 Then Exit MsgBox(16, "Development error", "2564387237898 CTRL+F me in _netcode_Core.au3") ; this error should never happen, but if does then because of a programming mistake in this UDF
+
+		$__net_arPacketSendQue[$nIndex] = $__net_arPacketSendQue[UBound($__net_arPacketSendQue) - 1]
+		ReDim $__net_arPacketSendQue[UBound($__net_arPacketSendQue) - 1]
 	Next
 
-	ReDim $__net_arPacketSendQue[0]
 	__Trace_FuncOut("__netcode_SendPacketQuo")
 EndFunc   ;==>__netcode_SendPacketQuo
 
@@ -3025,7 +3129,7 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 
 		; set default storage vars for this new client socket
 		_storageS_Overwrite($hSocket, '_netcode_MyParent', $hListenerSocket) ; this is my parent
-		__netcode_SocketSetManageMode($hSocket, 'auth') ; beginning in the auth stage
+		__netcode_SocketSetManageMode($hSocket, 'auth') ; beginning in the auth stage - note make it optionally settable in the options
 
 		Local $arBuffer[1000][2]
 		_storageS_Overwrite($hSocket, '_netcode_SafetyBuffer', $arBuffer) ; safety buffer with 1000 elements
@@ -3036,6 +3140,7 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 		_storageS_Overwrite($hSocket, '_netcode_ExecutionIndex', 0) ; execution index starts at 0
 		_storageS_Overwrite($hSocket, '_netcode_IncompletePacketBuffer', "") ; create empty incomplete packet buffer
 		_storageS_Overwrite($hSocket, '_netcode_PacketQuo', "") ; create empty packetquo buffer
+		_storageS_Overwrite($hSocket, '_netcode_PacketQuoSend', "") ; create empty packetquo buffer
 		_storageS_Overwrite($hSocket, '_netcode_SocketExecutionOnHold', False) ; OnHold on False
 		Local $arBuffer[0]
 		_storageS_Overwrite($hSocket, '_netcode_EventStorage', $arBuffer) ; create event buffer with 0 elements
@@ -3542,10 +3647,10 @@ Func __netcode_SocketSelect($arClients, $bRead = True)
 	Return __Trace_FuncOut("__netcode_SocketSelect", $arRet)
 EndFunc
 
-; this func has some weird issue with WSAGetLastError returning error 1400, no not 10040. The Error table doesnt reveal anything, google dont too.
+; this func has some weird issue with WSAGetLastError returning error 1400, yes 1400 not 10040. The Error table doesnt reveal anything, google dont too.
 ; i dont know what the heck it means.
 ; marked for recoding. i have to find the best way to use send() or wsasend()
-Func __netcode_TCPSend($hSocket, $sData) ; TCPSend
+Func __netcode_TCPSend($hSocket, $sData, $bReturnWhenDone = True) ; TCPSend
 	__Trace_FuncIn("__netcode_TCPSend", $hSocket, "$sData")
 ;~ 	$sData = BinaryToString($sData)
 	Local $nLen = BinaryLen($sData)
@@ -3573,8 +3678,9 @@ Func __netcode_TCPSend($hSocket, $sData) ; TCPSend
 
 		$nError = __netcode_WSAGetLastError()
 
-	Until $nError <> 10035 And $nError <> 1400
-;~ 	Until $nError <> 1400
+		if $bReturnWhenDone And $nError = 10035 Then ContinueLoop
+;~ 	Until $nError <> 10035 And $nError <> 1400
+	Until $nError <> 1400
 
 ;~ 	if $nError Then MsgBox(0, @ScriptName, $nError)
 ;~ 	if $nError Then _ArrayDisplay($arRet)
@@ -3612,7 +3718,7 @@ Func __netcode_TCPRecv(Const $hSocket)
 	Local $tRecvBuffer = DllStructCreate("byte[" & 65536 & "]")
 
 	; every socket is already non blocking, but recv still blocks occassionally which is very bad. So i reset to non blockig mode
-	; until i figured why recv blocks.
+	; until i figured why recv blocks while it shouldnt.
 	Local $arRet = DllCall($__net_hWs2_32, "int", "ioctlsocket", "int", $hSocket, "long", 0x8004667e, "ulong*", 1) ;FIONBIO
 
 	$arRet = DllCall($__net_hWs2_32, "int", "recv", "int", $hSocket, "ptr", DllStructGetPtr($tRecvBuffer), "int", 65536, "int", 0)
