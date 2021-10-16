@@ -1,3 +1,18 @@
+16.10.2021 (DD/MM/YYYY) 0.1.2
+	Fixes
+		- A mayor bug was partially patched where the server send a 'netcode' packet when the client hasnt yet received the presyn packet. This bug created a AES Decrypt error on the client side and made it impossible to sucessfully stage through the presyn phase. This bug will be fully resolved once the stages get their own packet format and can then send misplaced 'netcode' packets to the incomplete packet buffer.
+		
+		- __netcode_TCPRecv() sometimes reported a disconnect even so there was none. That was because of WSAGetLastError returning error 5 for "ERROR_ACCESS_DENIED". That was fixed.
+		
+	Changes
+		- To fix the first bug from above a new temporary stage was introduced. Stage number 9 named "ready".
+		
+		
+	Remarks
+		- The newly intoduced stage will send the incoming packet directly to the netcode manager. So this version is backwards compatible to 0.1
+		
+
+
 13.10.2021 (DD/MM/YYYY) 0.1.1
 	Fixes
 		- If $bWaitForFloodPrevention was set to True (Default) in _netcode_TCPSend() while the function waited for the Partners

@@ -3,7 +3,6 @@
 #include <Array.au3> ; For development
 ;~ Opt("MustDeclareVars", 1)
 #cs
-
 	Terminology
 		Parent
 			parents are all listening sockets. So if you call TCPListen the returned socket is a parent. Every incoming connection accepted with TCPAccept will be a Client of that parent.
@@ -196,7 +195,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.1"
+Global Const $__net_sNetcodeVersion = "0.1.2"
 Global Const $__net_sNetcodeVersioBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -564,6 +563,10 @@ Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = 
 	; ~ todo
 ;~ 	__netcode_SocketSetManageMode($hSocket, 'syn')
 
+	; ready temp stage
+;~ 	__netcode_TCPSend($hSocket, __netcode_AESEncrypt("ready", $hPassword))
+	_netcode_TCPSend($hSocket, 'netcode_internal', 'null')
+	__netcode_SendPacketQuo()
 
 	__netcode_SocketSetManageMode($hSocket, 'netcode')
 	__netcode_ExecuteEvent($hSocket, "connection", 10)
@@ -878,7 +881,10 @@ Func _netcode_SetEvent(Const $hSocket, $sName, $sCallback, $bSet = True)
 
 	; Get all events from this socket
 	Local $arEvents = __netcode_SocketGetEvents($hSocket)
-	If Not IsArray($arEvents) Then Return SetError(2, 0, False) ; all clients have this array. If this doesnt then the whole socket is unknown to _netcode
+	If Not IsArray($arEvents) Then
+		__Trace_Error(2, 0, "Unknown Socket")
+		Return SetError(2, 0, __Trace_FuncOut("_netcode_SetEvent", False)) ; all clients have this array. If this doesnt then the whole socket is unknown to _netcode
+	EndIf
 	Local $nArSize = UBound($arEvents)
 
 	; Check if the event is already set
@@ -1650,6 +1656,10 @@ Func __netcode_ManagePackages(Const $hSocket, $sPackages)
 			; ~ todo
 
 
+		Case 9 ; temp stage
+			__netcode_ManageReady($hSocket, $sPackages)
+
+
 		Case 10 ; 'netcode'
 			__netcode_ManageNetcode($hSocket, $sPackages)
 
@@ -1698,6 +1708,9 @@ Func __netcode_SocketSetManageMode(Const $hSocket, $sMode)
 
 		Case 'syn'
 			$nMode = 5
+
+		Case 'ready' ; temp stage
+			$nMode = 9
 
 		Case 'netcode'
 			$nMode = 10
@@ -1922,8 +1935,10 @@ Func __netcode_ManagePreSyn($hSocket, $sPackages)
 	__netcode_ExecuteEvent($hSocket, "connection", 4)
 ;~ 	__netcode_SocketSetManageMode($hSocket, 'syn')
 
-	__netcode_ExecuteEvent($hSocket, "connection", 10) ; temp - will move to the syn stage
-	__netcode_SocketSetManageMode($hSocket, 'netcode')
+;~ 	__netcode_ExecuteEvent($hSocket, "connection", 10) ; temp - will move to the syn stage
+	__netcode_ExecuteEvent($hSocket, "connection", 9) ; temp - will move to the syn stage
+;~ 	__netcode_SocketSetManageMode($hSocket, 'netcode')
+	__netcode_SocketSetManageMode($hSocket, 'ready')
 	__Trace_FuncOut("__netcode_ManagePreSyn")
 EndFunc   ;==>__netcode_ManagePreSyn
 
@@ -1935,11 +1950,39 @@ Func __netcode_ManageSyn($hSocket, $sPackages)
 	__netcode_Au3CheckFix($sPackages)
 EndFunc   ;==>__netcode_ManageSyn
 
+Func __netcode_ManageReady($hSocket, $sPackages)
+	__Trace_FuncIn("__netcode_ManageReady", "$sPackages")
+
+;~ 	MsgBox(0, @ScriptName, $sPackages)
+
+	__netcode_ExecuteEvent($hSocket, "connection", 10)
+	__netcode_SocketSetManageMode($hSocket, 'netcode')
+
+;~ 	_storageS_Overwrite($hSocket, '_netcode_IncompletePacketBuffer', $sPackages)
+	__netcode_ManageNetcode($hSocket, $sPackages)
+
+	#cs
+	Local $hPassword = __netcode_SocketGetPacketEncryptionPassword($hSocket)
+	$sPackages = BinaryToString(__netcode_AESDecrypt(StringToBinary($sPackages), $hPassword))
+
+	if $sPackages = "Ready" Then
+		__netcode_ExecuteEvent($hSocket, "connection", 10)
+		__netcode_SocketSetManageMode($hSocket, 'netcode')
+	Else
+		__Trace_Error(1, 0, "Couldnt Decrypt Ready Stage packet")
+		Return SetError(__netcode_TCPCloseSocket($hSocket), __netcode_RemoveSocket($hSocket), __Trace_FuncOut("__netcode_ManageReady", False))
+	EndIf
+	#ce
+
+	__Trace_FuncOut("__netcode_ManageReady")
+EndFunc
+
 ; marked for recoding
 Func __netcode_ManageNetcode($hSocket, $sPackages)
 	__Trace_FuncIn("__netcode_ManageNetcode", "$sPackages")
 
 	$sPackages = _storageS_Read($hSocket, '_netcode_IncompletePacketBuffer') & $sPackages
+;~ 	if @ScriptName = "server.au3" Then MsgBox(0, "", _storageS_Read($hSocket, '_netcode_IncompletePacketBuffer'))
 	_storageS_Overwrite($hSocket, '_netcode_IncompletePacketBuffer', "")
 	; if the StringLeft() isnt $__net_sPacketBegin then we may have no netcode packet and have to check if its maybe something socks etc. related
 
@@ -1956,6 +1999,7 @@ Func __netcode_ManageNetcode($hSocket, $sPackages)
 	Local $hPassword = Ptr("")
 
 ;~ 	if @ScriptName = "server.au3" Then _ArrayDisplay($arPackages)
+;~ 	if @ScriptName = "server.au3" Then MsgBox(0, "", $sPackages)
 
 	For $i = 2 To $arPackages[0]
 		If StringRight($arPackages[$i], 10) <> $sPacketEnd Then
@@ -1991,6 +2035,7 @@ Func __netcode_ManageNetcode($hSocket, $sPackages)
 
 		; if $arPacketContent[0] is <> 4 then reject packet
 
+;~ 		if @ScriptName = "Server.au3" Then MsgBox(0, $arPacketContent[1], $arPacketContent[3])
 
 		; maybe the Internal Split string reoccured in the data then merge all elements above [4] into [4]
 		If $arPacketContent[0] > 4 Then
@@ -2199,6 +2244,21 @@ Func __netcode_SendPacketQuo()
 		ReDim $__net_arPacketSendQue[UBound($__net_arPacketSendQue) - 1]
 	Next
 
+	__Trace_FuncOut("__netcode_SendPacketQuo")
+EndFunc   ;==>__netcode_SendPacketQuo
+
+Func __netcode_SendPacketQuo_Backup()
+	__Trace_FuncIn("__netcode_SendPacketQuo")
+	Local $nArSize = UBound($__net_arPacketSendQue)
+	If $nArSize = 0 Then Return __Trace_FuncOut("__netcode_SendPacketQuo")
+
+	For $i = 0 To $nArSize - 1
+		__netcode_TCPSend($__net_arPacketSendQue[$i], StringToBinary(_storageS_Read($__net_arPacketSendQue[$i], '_netcode_PacketQuo')))
+;~ 		__netcode_TCPSend($__net_arPacketSendQue[$i], _storageS_Read($__net_arPacketSendQue[$i], '_netcode_PacketQuo'))
+		_storageS_Overwrite($__net_arPacketSendQue[$i], '_netcode_PacketQuo', '')
+	Next
+
+	ReDim $__net_arPacketSendQue[0]
 	__Trace_FuncOut("__netcode_SendPacketQuo")
 EndFunc   ;==>__netcode_SendPacketQuo
 
@@ -2419,7 +2479,6 @@ Func __netcode_ExecuteEvent(Const $hSocket, $sEvent, $sData = '')
 	; check if event is set. if not check if the event is a default event.
 	Local $sCallback = _storageS_Read($hSocket, '_netcode_Event' & $sEvent)
 	If Not $sCallback Then
-
 		$sCallback = _storageS_Read('Internal', '_netcode_DefaultEvent' & $sEvent)
 		If Not $sCallback Then
 			__Trace_Error(1, 0, "This Event is unknown", "", $hSocket, $sEvent)
@@ -2427,6 +2486,8 @@ Func __netcode_ExecuteEvent(Const $hSocket, $sEvent, $sData = '')
 		EndIf
 
 	EndIf
+
+;~ 	ConsoleWrite(@TAB & @TAB & BinaryToString($sEvent) & @CRLF)
 
 	; convert params to array, and also unmerge them if _netcode_sParams() is used, for Call()
 	Local $arParams = __netcode_r_Params2ar_Params($hSocket, $sData)
@@ -3759,6 +3820,8 @@ Func __netcode_WSAGetLastError()
 EndFunc   ;==>__netcode_WSAGetLastError
 
 ; TCPRecv
+; WSAGetLastError() sometimes returns error 5
+; https://www.gamedev.net/forums/topic/399027-wsagetlasterror-returns-5-what-does-this-mean-solved/
 Func __netcode_TCPRecv(Const $hSocket)
 	__Trace_FuncIn("__netcode_TCPRecv", $hSocket)
 
@@ -3771,23 +3834,26 @@ Func __netcode_TCPRecv(Const $hSocket)
 
 	$arRet = DllCall($__net_hWs2_32, "int", "recv", "int", $hSocket, "ptr", DllStructGetPtr($tRecvBuffer), "int", 65536, "int", 0)
 
-
+	; "If the connection has been gracefully closed, the return value is zero."
 	if $arRet[0] = 0 Then
-		__Trace_Error($nError, 1, "Socket Error")
+;~ 		$nError = __netcode_WSAGetLastError()
+		__Trace_Error(0, 1, "Socket Error")
 		Return SetError($nError, 1, __Trace_FuncOut("__netcode_TCPRecv", False))
 	EndIf
 
 	if $arRet[0] = -1 Then
 		$nError = __netcode_WSAGetLastError()
-		if $nError Then
-			if $nError <> 10035 And $nError <> 1400 Then
-				__Trace_Error($nError, 1, "Socket Error")
-				Return SetError($nError, 1, __Trace_FuncOut("__netcode_TCPRecv", False))
+		if $nError > 0 Then
+			if $nError <> 10035 And $nError <> 1400 And $nError <> 5 Then
+				__Trace_Error($nError, 2, "Socket Error")
+				Return SetError($nError, 2, __Trace_FuncOut("__netcode_TCPRecv", False))
 			EndIf
 		EndIf
 
 		Return __Trace_FuncOut("__netcode_TCPRecv", "")
 	EndIf
+
+;~ 	if @ScriptName = "Server.au3" then ConsoleWrite($hSocket & @TAB & @TAB & BinaryToString(BinaryMid(DllStructGetData($tRecvBuffer, 1), 1, $arRet[0])) & @CRLF)
 
 	__Trace_FuncOut("__netcode_TCPRecv")
 	Return BinaryMid(DllStructGetData($tRecvBuffer, 1), 1, $arRet[0])
