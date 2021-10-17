@@ -1,3 +1,9 @@
+16.10.2021 (DD/MM/YYYY) 0.1.3
+	Fixes
+		- A small bug appeared that made both the server and client incapable to detect that the socket was disconnected.
+		The bug lied in the recently overhauled __netcode_SendPacketQuo() that didnt check errors reported from WSAGetLastError. Besides that a typo in __netcode_TCPRecv() was made where _netcode should only check for errors > 10000 but was set to check < 10000.
+		
+
 16.10.2021 (DD/MM/YYYY) 0.1.2
 	Fixes
 		- A mayor bug was partially patched where the server send a 'netcode' packet when the client hasnt yet received the presyn packet. This bug created a AES Decrypt error on the client side and made it impossible to sucessfully stage through the presyn phase. This bug will be fully resolved once the stages get their own packet format and can then send misplaced 'netcode' packets to the incomplete packet buffer.
