@@ -183,7 +183,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.3"
+Global Const $__net_sNetcodeVersion = "0.1.4"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -2129,6 +2129,67 @@ Func __netcode_AddPacketToQue(Const $hSocket, $sPackage)
 	__Trace_FuncOut("__netcode_AddPacketToQue")
 EndFunc   ;==>__netcode_AddPacketToQue
 
+; requires heavy testing to make sure set 'send' doesnt fail
+Func __netcode_SendPacketQuo()
+	__Trace_FuncIn("__netcode_SendPacketQuo")
+
+	; there is no socket quoed
+	if UBound($__net_arPacketSendQue) = 0 Then Return __Trace_FuncOut("__netcode_SendPacketQuo")
+
+	; select clients of the send quo that are ready to send
+	Local $arTempSendQuo = __netcode_SocketSelect($__net_arPacketSendQue, False)
+
+	; if none are capable
+	if UBound($arTempSendQuo) = 0 Then Return __Trace_FuncOut("__netcode_SendPacketQuo")
+
+	; locals
+	Local $nIndex = -1
+	Local $nArSize = 0
+	Local $nError = 0
+	Local $bDisconnect = False
+
+	; for every socket in the filtered send quo
+	For $i = 0 To UBound($arTempSendQuo) - 1
+
+		; send non-blocking
+		__netcode_TCPSend($arTempSendQuo[$i], StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo')), False)
+		$nError = @error
+
+		; empty the packet quo for the socket
+		_storageS_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuo', '')
+
+		; see if the socket is disconnected
+		Switch $nError
+			Case 10050 To 10054
+				_netcode_TCPDisconnect($arTempSendQuo[$i])
+
+		EndSwitch
+
+		; remove socket from the global send quo array
+		$nArSize = UBound($__net_arPacketSendQue)
+		if $nArSize = 1 Then
+			ReDim $__net_arPacketSendQue[0]
+			ContinueLoop
+		EndIf
+
+		; find the socket in the array
+		$nIndex = -1
+		For $iS = 0 To $nArSize - 1
+			if $__net_arPacketSendQue[$iS] = $arTempSendQuo[$i] Then
+				$nIndex = $iS
+				ExitLoop
+			EndIf
+		Next
+		if $nIndex = -1 Then Exit MsgBox(16, "Development Error", "786340")
+
+		; and remove it by replacing it with the last
+		$__net_arPacketSendQue[$nIndex] = $__net_arPacketSendQue[$nArSize - 1]
+		ReDim $__net_arPacketSendQue[$nArSize - 1]
+	Next
+
+	__Trace_FuncOut("__netcode_SendPacketQuo")
+EndFunc
+
 #cs
 	Each packet quoed up in _netcode_TCPSend() is here given to the 'send' function.
 	__netcode_TCPSend() is set to return even if the send is yet not done (duo to it being non blocking).
@@ -2147,7 +2208,10 @@ EndFunc   ;==>__netcode_AddPacketToQue
 #ce
 ; note - inefficient
 ; marked for recoding
-Func __netcode_SendPacketQuo()
+; "The select, WSAAsyncSelect or WSAEventSelect functions can be used to determine when it is possible to send more data."
+; make use of that instead of using the current system, not just because its inefficient but also its most probably not intended like how its done here.
+; check socket with "writefds:" __netcode_SocketSelect() should already be capable todo that.
+Func __netcode_SendPacketQuo_Backup()
 	__Trace_FuncIn("__netcode_SendPacketQuo")
 	Local $nArSize = UBound($__net_arPacketSendQue)
 	Local $nArSizeWait = UBound($__net_arPacketSendQueWait)
@@ -2259,21 +2323,6 @@ Func __netcode_SendPacketQuo()
 		EndIf
 	Next
 
-	__Trace_FuncOut("__netcode_SendPacketQuo")
-EndFunc   ;==>__netcode_SendPacketQuo
-
-Func __netcode_SendPacketQuo_Backup()
-	__Trace_FuncIn("__netcode_SendPacketQuo")
-	Local $nArSize = UBound($__net_arPacketSendQue)
-	If $nArSize = 0 Then Return __Trace_FuncOut("__netcode_SendPacketQuo")
-
-	For $i = 0 To $nArSize - 1
-		__netcode_TCPSend($__net_arPacketSendQue[$i], StringToBinary(_storageS_Read($__net_arPacketSendQue[$i], '_netcode_PacketQuo')))
-;~ 		__netcode_TCPSend($__net_arPacketSendQue[$i], _storageS_Read($__net_arPacketSendQue[$i], '_netcode_PacketQuo'))
-		_storageS_Overwrite($__net_arPacketSendQue[$i], '_netcode_PacketQuo', '')
-	Next
-
-	ReDim $__net_arPacketSendQue[0]
 	__Trace_FuncOut("__netcode_SendPacketQuo")
 EndFunc   ;==>__netcode_SendPacketQuo
 

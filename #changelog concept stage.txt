@@ -1,3 +1,16 @@
+21.10.2021 (DD/MM/YYYY) 0.1.4
+	Changes
+		- __netcode_SendPacketQuo() got overhauled. The function now makes use of 'select' instead of pushing dllcalls to 'send' until it gave a non 10035.
+	
+	Current Problematics
+		- When connecting to a computer thats not localhost but a pc in the same network, or in the internet or the same pc but over the external ip and when then sending data to said computer then _netcode never seems to get never faster then 12 MB/s no matter the settings. This issue might only exists in my network, because i also observed the same on other applications like a FTP and HTTP server that i setup for testing. It was never possible to exceed 12 Mb/s even so that any device in my local network should be capable to transmit more then 200 Mb/s. Further investigation of the problematic showed me that it has something todo with windows sending or receiving data delayed. There seems to be some kind of reason why data is sucessfully send at 00:00.000 (Hour:Minute.MSec) but only availble to be received around 00:00.100 (difference of 100 ms). My current guess is that windows doesnt send the data imidiatly but in intervalls and that i only have todo something code wise to tell windows to priotize said data, but i yet havent found out how and if thats really where the issue lays. 
+	
+	Remarks
+		- Duo to the latest change _netcode got faster.
+			'netcode' managemode got up to ~86 MB/s
+			'rawlinked' managemode got up to ~220 MB/s
+
+
 16.10.2021 (DD/MM/YYYY) 0.1.3
 	Fixes
 		- A small bug appeared that made both the server and client incapable to detect that the socket was disconnected.
