@@ -1,3 +1,40 @@
+21.10.2021 (DD/MM/YYYY) 0.1.5
+	Changes
+		- MILDLY SCRIPT BREAKING CHANGE
+		The disconnect event got overhauled. The corresponding disconnect function, if set at all, now requires 3 params or the call will fail. If you dont use the disconnect event at all then you can ignore that.
+		1 $hSocket
+		2 $nDisconnectError = disconnect error can be 10050 to 10054. if it is 0 then the socket was disconnected gracefully
+		3 $bDisconnectTriggered = if _netcode_TCPDisconnect() is used then this value will be True. But only for the side that called it.
+		
+		The general idea of that change is that a user of the UDF can do actions based around these errors. So a non zero error could mean that the connection was lost and that a reconnect should be tried. MsgBoxes can also be displayed with more usefull information because of that.
+		
+		If the disconnect event callback still just has a single param for the socket then netcode notices that and will try to call it with just a single param after calling it with 3 failed.
+
+
+		- The connection event got overhault and requires now 3 params or the call will fail. Similiar to the overhault disconenct event _netcode wil notice a wrong amount of params and will call the event with just two in that case then.
+		1 $hSocket
+		2 $nStage = succeded stage number
+		3 $vData = will give additional data of the stage that can be of any variable type
+		
+		additional informations are:
+		Stage 0 (auth) = nothing
+		Stage 1 (handshake) = session key
+		Stage 2 (user) = Username
+		Stage 3 (2FA) ) = not implemented yet
+		Stage 4 (presyn) = an array containing the server settings the client inherits
+		Stage 5 (syn) = not implemented yet
+		Stage 9 (ready) = nothing
+		Stage 10 (netcode) = nothing
+
+		
+		- The default 'connection' and 'disconnected' events are now invalid events for _netcode_TCPSend(). If a packet with this event is send it will be rejected by the receiver. This is done to protect these events because they are only ment to be used locally to get information about a connection and a disconnect. We dont want the sender to misuse that. Besides that _netcode_TCPSend() also notifies about this invalid event.
+		
+		
+	Security Issue
+		- Duo to SRandom in the yet not fully implemented Seeding system the Random Passwort Generation is influenced by that. Said bug is a big Security issue and is just patched by generating a random number in the header of the UDF. This issue will be faced further once the diffie hellman key exchange is implemented. This issue was just noticed while doing the changes to the connection event.
+		
+		
+	
 21.10.2021 (DD/MM/YYYY) 0.1.4
 	Changes
 		- __netcode_SendPacketQuo() got overhauled. The function now makes use of 'select' instead of pushing dllcalls to 'send' until it gave a non 10035.

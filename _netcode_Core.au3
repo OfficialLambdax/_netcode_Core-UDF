@@ -174,6 +174,7 @@ Global $__net_hInt_hAESAlgorithmProvider = -1 ; AES provider handle
 Global $__net_hInt_hRSAAlgorithmProvider = -1 ; RSA provider handle
 Global $__net_hInt_hSHAAlgorithmProvider = -1 ; SHA provider handle
 Global $__net_nInt_CryptionIterations = 1000 ; i have to research the topic of Iterations
+Global $__net_nInt_TemporarySRandomFix = Random(1000000, 999999999, 1)
 
 ; ===================================================================================================================================================
 ; Constants
@@ -183,7 +184,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.4"
+Global Const $__net_sNetcodeVersion = "0.1.5"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -270,7 +271,7 @@ Func _netcode_Loop(Const $hListenerSocket)
 						Else
 
 							; if we successfully added the socket then call the connection event on stage 0
-							__netcode_ExecuteEvent($hNewSocket, "connection", 0)
+							__netcode_ExecuteEvent($hNewSocket, "connection", _netcode_sParams(0, _netcode_SocketToIP($hNewSocket)))
 						EndIf
 					EndIf
 
@@ -317,9 +318,10 @@ Func _netcode_RecvManageExecute(Const $hSocket, $hParentSocket = False)
 
 	; recv packages
 	Local $sPackages = __netcode_RecvPackages($hSocket)
-	If @error = 1 Then
+	Local $nError = @error
+	If $nError or @extended Then
 		__netcode_TCPCloseSocket($hSocket)
-		__netcode_RemoveSocket($hSocket)
+		__netcode_RemoveSocket($hSocket, False, False, $nError)
 	EndIf
 	If $sPackages = "" Then
 ;~ 		__Trace_Error(0, 1, "", "
@@ -344,12 +346,22 @@ EndFunc   ;==>_netcode_RecvManageExecute
 ; if the socket is set OnHold then _netcode will based on a option instantly disconnect or not (but will throw a error).
 Func _netcode_TCPDisconnect(Const $hSocket, $bForce = False)
 	__Trace_FuncIn("_netcode_TCPDisconnect", $hSocket)
-	If __netcode_CheckSocket($hSocket) = 0 Then
+	Local $nSocketIs = __netcode_CheckSocket($hSocket)
+	If $nSocketIs = 0 Then
 		__Trace_Error(1, 0, "This Socket is unknown to _netcode")
 		if Not $bForce Then Return SetError(1, 0, __Trace_FuncOut("_netcode_TCPDisconnect", False)) ; this socket is unknown to _netcode
 	EndIf
 	__netcode_TCPCloseSocket($hSocket)
-	__netcode_RemoveSocket($hSocket)
+
+	Switch $nSocketIs
+		Case 1 ; parent
+			__netcode_RemoveSocket($hSocket, True, True)
+
+		Case 2 ; client
+			__netcode_RemoveSocket($hSocket, False, True)
+
+	EndSwitch
+
 	Return __Trace_FuncOut("_netcode_TCPDisconnect", True)
 EndFunc   ;==>_netcode_TCPDisconnect
 
@@ -399,7 +411,7 @@ Func _netcode_TCPConnect($sIP, $sPort, $bDontAuthAsNetcode = False, $sUsername =
 		Return SetError($nError, 0, __Trace_FuncOut("_netcode_TCPConnect", False))
 	EndIf
 
-	__netcode_ExecuteEvent($hSocket, "connection", 0)
+	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(0, $sIP))
 
 	__netcode_AddSocket($hSocket, '000', 0, $sIP, $sPort, $sUsername, $sPassword)
 	If Not $bDontAuthAsNetcode Then
@@ -439,7 +451,7 @@ Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = 
 	EndIf
 
 	; first stage done
-	__netcode_ExecuteEvent($hSocket, "connection", 1)
+	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(1, ""))
 
 	; create RSA key pair if none given through $arKeyPairs
 	If Not IsBinary($arKeyPairs) Then $arKeyPairs = __netcode_CryptGenerateRSAKeyPair(2048)
@@ -470,7 +482,7 @@ Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = 
 	__netcode_SocketSetPacketEncryptionPassword($hSocket, $hPassword)
 
 	; second stage done
-	__netcode_ExecuteEvent($hSocket, "connection", 2)
+	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(2, BinaryToString($sDecData)))
 
 	If $sUsername <> '' Then
 		; try login in by sending our user and password
@@ -518,7 +530,7 @@ Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = 
 		EndSwitch
 
 		; third step done
-		__netcode_ExecuteEvent($hSocket, "connection", 3)
+		__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(3, $sUsername))
 	EndIf
 
 	; Request PreSyn data
@@ -545,7 +557,7 @@ Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = 
 	Next
 
 	; fourth step done
-	__netcode_ExecuteEvent($hSocket, "connection", 4)
+	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(4, $arPreSyn))
 
 	; syn phase
 	; ~ todo
@@ -557,7 +569,7 @@ Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = 
 	__netcode_SendPacketQuo()
 
 	__netcode_SocketSetManageMode($hSocket, 'netcode')
-	__netcode_ExecuteEvent($hSocket, "connection", 10)
+	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(10, ""))
 	Return __Trace_FuncOut("_netcode_AuthToNetcodeServer", True)
 EndFunc   ;==>_netcode_AuthToNetcodeServer
 
@@ -637,6 +649,11 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 	Local $sPackage = ""
 	Local $nError = 0
 ;~ 	Local $sID = ""
+
+	if $sEvent = 'connection' Or $sEvent = 'disconnected' Then
+		__Trace_Error(10, 0, "The " & $sEvent & " event is an invalid event to be send")
+		Return SetError(10, 0, __Trace_FuncOut("_netcode_TCPSend", False))
+	EndIf
 
 	Do
 		$sPackage = __netcode_CreatePackage($hSocket, $sEvent, $sData, True)
@@ -1741,7 +1758,7 @@ Func __netcode_ManageAuth($hSocket, $sPackages)
 		; tcpsend a confirmation
 		__netcode_TCPSend($hSocket, StringToBinary($__net_sAuthNetcodeConfirmationString))
 
-		__netcode_ExecuteEvent($hSocket, "connection", 1)
+		__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(1, ""))
 
 		Return __Trace_FuncOut("__netcode_ManageAuth")
 	EndIf
@@ -1753,6 +1770,10 @@ EndFunc   ;==>__netcode_ManageAuth
 Func __netcode_ManageHandshake($hSocket, $sPackages)
 	__Trace_FuncIn("__netcode_ManageHandshake", "$sPackages")
 	$sPackages = StringToBinary($sPackages)
+
+	; temporary fix
+	$__net_nInt_TemporarySRandomFix += 1
+	SRandom($__net_nInt_TemporarySRandomFix)
 
 	Local $sPW = __netcode_RandomPW(20, 3)
 	Local $sEncryptionKey = __netcode_AESDeriveKey($sPW, "packetencryption")
@@ -1777,7 +1798,7 @@ Func __netcode_ManageHandshake($hSocket, $sPackages)
 		__netcode_SocketSetManageMode($hSocket, 'presyn')
 	EndIf
 
-	__netcode_ExecuteEvent($hSocket, "connection", 2)
+	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(2, $sPW))
 	__Trace_FuncOut("__netcode_ManageHandshake")
 EndFunc   ;==>__netcode_ManageHandshake
 
@@ -1800,7 +1821,7 @@ Func __netcode_ManageUser($hSocket, $sPackages)
 
 	If Not __netcode_ManageUserLogin($hSocket, $arPackages, $hPassword) Then Return __Trace_FuncOut("__netcode_ManageUser")
 
-	__netcode_ExecuteEvent($hSocket, "connection", 3)
+	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(3, $arPackages[2]))
 	__netcode_SocketSetManageMode($hSocket, 'presyn')
 	__Trace_FuncOut("__netcode_ManageUser")
 EndFunc   ;==>__netcode_ManageUser
@@ -1922,11 +1943,11 @@ Func __netcode_ManagePreSyn($hSocket, $sPackages)
 
 	__netcode_SeedingClientStrings($hSocket, $arPreSyn[3][1])
 
-	__netcode_ExecuteEvent($hSocket, "connection", 4)
+	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(4, $arPreSyn))
 ;~ 	__netcode_SocketSetManageMode($hSocket, 'syn')
 
 ;~ 	__netcode_ExecuteEvent($hSocket, "connection", 10) ; temp - will move to the syn stage
-	__netcode_ExecuteEvent($hSocket, "connection", 9) ; temp - will move to the syn stage
+	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(9, "")) ; temp - will move to the syn stage
 ;~ 	__netcode_SocketSetManageMode($hSocket, 'netcode')
 	__netcode_SocketSetManageMode($hSocket, 'ready')
 	__Trace_FuncOut("__netcode_ManagePreSyn")
@@ -1945,7 +1966,7 @@ Func __netcode_ManageReady($hSocket, $sPackages)
 
 ;~ 	MsgBox(0, @ScriptName, $sPackages)
 
-	__netcode_ExecuteEvent($hSocket, "connection", 10)
+	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(10, ""))
 	__netcode_SocketSetManageMode($hSocket, 'netcode')
 
 ;~ 	_storageS_Overwrite($hSocket, '_netcode_IncompletePacketBuffer', $sPackages)
@@ -2049,6 +2070,13 @@ Func __netcode_ManageNetcode($hSocket, $sPackages)
 			ContinueLoop
 		EndIf
 
+		; invalid events
+		if $arPacketContent[3] = 'connection' Or $arPacketContent[3] = 'disconnected' Then
+			__Trace_Error(1, 0, "Invalid Event: " & $arPacketContent[3] & " was send. Data and event gets rejected")
+			$arPacketContent[3] = "208519967649002627"
+			$arPacketContent[4] = '' ; data is rejected
+		EndIf
+
 		__netcode_AddToExecutionBuffer($hSocket, $arPacketContent[1], $arPacketContent[3], $arPacketContent[4])
 
 	Next
@@ -2129,7 +2157,7 @@ Func __netcode_AddPacketToQue(Const $hSocket, $sPackage)
 	__Trace_FuncOut("__netcode_AddPacketToQue")
 EndFunc   ;==>__netcode_AddPacketToQue
 
-; requires heavy testing to make sure set 'send' doesnt fail
+; requires heavy testing to make sure that 'send' doesnt fail
 Func __netcode_SendPacketQuo()
 	__Trace_FuncIn("__netcode_SendPacketQuo")
 
@@ -2161,7 +2189,9 @@ Func __netcode_SendPacketQuo()
 		; see if the socket is disconnected
 		Switch $nError
 			Case 10050 To 10054
-				_netcode_TCPDisconnect($arTempSendQuo[$i])
+;~ 				_netcode_TCPDisconnect($arTempSendQuo[$i]) ; dont use internally
+				__netcode_TCPCloseSocket($arTempSendQuo[$i])
+				__netcode_RemoveSocket($arTempSendQuo[$i], False, False, $nError)
 
 		EndSwitch
 
@@ -2391,8 +2421,8 @@ Func __netcode_EventStrippingFix()
 	__Trace_FuncOut("__netcode_EventStrippingFix")
 	Return
 
-	__netcode_EventConnect(0, 0)
-	__netcode_EventDisconnect(0)
+	__netcode_EventConnect(0, 0, 0)
+	__netcode_EventDisconnect(0, 0, 0)
 	__netcode_EventFlood(0)
 	__netcode_EventBanned(0)
 	__netcode_EventMessage(0, 0)
@@ -2402,16 +2432,17 @@ Func __netcode_EventStrippingFix()
 	__netcode_EventInternal(0, 0)
 EndFunc   ;==>__netcode_EventStrippingFix
 
-Func __netcode_EventConnect(Const $hSocket, $nStage)
+;~ Func __netcode_EventConnect(Const $hSocket, $nStage)
+Func __netcode_EventConnect(Const $hSocket, $nStage, $vData)
 	__Trace_FuncIn("__netcode_EventConnect", $hSocket, $nStage)
 	__Trace_FuncOut("__netcode_EventConnect")
 	__netcode_Debug("New Socket @ " & $hSocket & " on Stage: " & $nStage)
 EndFunc   ;==>__netcode_EventConnect
 
-Func __netcode_EventDisconnect(Const $hSocket)
+Func __netcode_EventDisconnect(Const $hSocket, $nDisconnectError = 0, $bDisconnectTriggered = False)
 	__Trace_FuncIn("__netcode_EventDisconnect", $hSocket)
 	__Trace_FuncOut("__netcode_EventDisconnect")
-	__netcode_Debug("Socket @ " & $hSocket & " Disconnected")
+	__netcode_Debug("Socket @ " & $hSocket & " Disconnected Error: " & $nDisconnectError)
 EndFunc   ;==>__netcode_EventDisconnect
 
 Func __netcode_EventFlood(Const $hSocket)
@@ -2486,7 +2517,9 @@ Func __netcode_EventSocketLinkSetup(Const $hSocket, $nLinkID)
 
 	if $hNewSocket = -1 Then
 		__Trace_Error(1, 0, "Could not find LinkID")
-		_netcode_TCPDisconnect($hSocket)
+;~ 		_netcode_TCPDisconnect($hSocket) ; dont use internally
+		__netcode_TCPCloseSocket($hSocket)
+		__netcode_RemoveSocket($hSocket)
 		Return __Trace_FuncOut("__netcode_EventSocketLinkSetup")
 	EndIf
 
@@ -2540,16 +2573,26 @@ Func __netcode_ExecuteEvent(Const $hSocket, $sEvent, $sData = '')
 	; parent socket can never Execute. But we wont check if the given socket is a parent here to spare code because this func is most probably getting called very often
 	If Not IsBinary($sEvent) Then $sEvent = StringToBinary($sEvent)
 
+	if $sEvent = "208519967649002627" Then
+		__Trace_Error(5, 0, "Invalid Event got rejected")
+		Return __Trace_FuncOut("__netcode_ExecuteEvent", False)
+	EndIf
+
 	; check if event is set. if not check if the event is a default event.
 	Local $sCallback = _storageS_Read($hSocket, '_netcode_Event' & $sEvent)
 	If Not $sCallback Then
 		$sCallback = _storageS_Read('Internal', '_netcode_DefaultEvent' & $sEvent)
 		If Not $sCallback Then
-			__Trace_Error(1, 0, "This Event is unknown", "", $hSocket, $sEvent)
+			__Trace_Error(1, 0, 'This Event is unknown: "' & BinaryToString($sEvent) & '"', "", $hSocket, $sEvent)
 			Return SetError(1, 0, __Trace_FuncOut("__netcode_ExecuteEvent", False)) ; this event is neither set / preset nor a default event. the event is completly unknown
 		EndIf
 
 	EndIf
+
+	; currently not working
+;~ 	if Not IsFunc($sCallback) Then
+;~ 		__Trace_Error(2, 0, 'Event Callback: "' & $sCallback & '" func for event "' & BinaryToString($sEvent) & '" doesnt exists')
+;~ 	EndIf
 
 ;~ 	ConsoleWrite(@TAB & @TAB & BinaryToString($sEvent) & @CRLF)
 
@@ -2558,17 +2601,26 @@ Func __netcode_ExecuteEvent(Const $hSocket, $sEvent, $sData = '')
 
 	__Trace_FuncIn($sCallback)
 	Call($sCallback, $arParams)
-	Switch @error ; needs further testing
+	If @error Then ; needs further testing
+		__Trace_Error(3, 0, 'Event Callback func got called with the wrong amount of params: ' & UBound($arParams) - 1)
 
-		Case "0xDEAD"
-			__Trace_Error(1, 0, "Event Callback func doesnt exists", "", $sCallback)
-;~ 			__netcode_Debug("Event Call error: " & $sCallback & " Could not be called. It doesnt exists.")
+		; temporary
+		Switch $sEvent
 
-		Case "0xBEEF"
-			__Trace_Error(2, 0, "Event Callback func got called with wrong ammount of params", "", $sCallback, UBound($arParams) - 1)
-;~ 			__netcode_Debug("Event Call error: " & $sCallback & " Could not be called. It had the wrong amount of params. Called with: " & UBound($arParams) - 1)
+			Case "connection"
+				__Trace_Error(4, 0, "Calling Callback Func with 2 params instead")
+				ReDim $arParams[3]
+				Call($sCallback, $arParams)
+				if @error Then __Trace_Error(5, 0, 'Event Callback func got called with the wrong amount of params: ' & UBound($arParams) - 1)
 
-	EndSwitch
+			Case "disconnected"
+				__Trace_Error(4, 0, "Calling Callback Func with 1 param instead")
+				Call($sCallback, $arParams[1])
+				if @error Then __Trace_Error(5, 0, 'Event Callback func got called with the wrong amount of params: 1')
+
+		EndSwitch
+	EndIf
+
 	__Trace_FuncOut($sCallback)
 
 	__Trace_FuncOut("__netcode_ExecuteEvent")
@@ -2848,27 +2900,26 @@ Func __netcode_RecvPackages(Const $hSocket)
 	Local $sTCPRecv = ''
 	Local $hTimer = TimerInit()
 	Local $bDisconnect = False
+	Local $nError = 0
 
 	Do
 ;~ 		TCPRecv ; reference
 ;~ 		$sTCPRecv = __netcode_TCPRecv_Backup($hSocket, 65536, 1)
 		$sTCPRecv = __netcode_TCPRecv($hSocket)
+		$nError = @error
 		If @extended Then $bDisconnect = True
-		Switch @error
-			Case 10054
-				$bDisconnect = True
-
-			Case 10053
+		Switch $nError
+			Case 10050 To 10054
 				$bDisconnect = True
 
 		EndSwitch
 
 		If $bDisconnect Then
-			If $sPackages <> '' Then ExitLoop ; in the case the client send something and then closed his socket instantly. We still want to process the packet first. So we call disconnect next loop.
+;~ 			If $sPackages <> '' Then ExitLoop ; in the case the client send something and then closed his socket instantly. We still want to process the packet first. So we call disconnect next loop.
 ;~ 			If $sPackages <> '' Then Return $sPackages ; in the case the client send something and then closed his socket instantly. We still want to process the packet first. So we call disconnect next loop.
 
-			__Trace_Error(1, 0, "Disconnected")
-			Return SetError(1, 0, __Trace_FuncOut("__netcode_RecvPackages", False))
+			__Trace_Error($nError, 1, "Disconnected")
+			Return SetError($nError, 1, __Trace_FuncOut("__netcode_RecvPackages", False))
 		EndIf
 
 		$sPackages &= BinaryToString($sTCPRecv)
@@ -3365,7 +3416,7 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 	EndIf
 EndFunc   ;==>__netcode_AddSocket
 
-Func __netcode_RemoveSocket(Const $hSocket, $bIsParent = False)
+Func __netcode_RemoveSocket(Const $hSocket, $bIsParent = False, $bDisconnectTriggered = False, $nDisconnectError = 0)
 	__Trace_FuncIn("__netcode_RemoveSocket", $hSocket, $bIsParent)
 
 	Local $arClients[0]
@@ -3399,7 +3450,8 @@ Func __netcode_RemoveSocket(Const $hSocket, $bIsParent = False)
 		EndIf
 
 		; call disconnect event
-		__netcode_ExecuteEvent($hSocket, "disconnected")
+;~ 		__netcode_ExecuteEvent($hSocket, "disconnected")
+		__netcode_ExecuteEvent($hSocket, "disconnected", _netcode_sParams($nDisconnectError, $bDisconnectTriggered))
 
 		; remove one connection from the active connection counter of the parent
 		Local $nCurrentConnections = _storageS_Read($hParentSocket, '_netcode_ListenerCurrentConnections') - 1
