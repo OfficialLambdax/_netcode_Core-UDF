@@ -767,7 +767,7 @@ Func _netcode_SetupSocketLink(Const $hSocket, $sCallback, $nLinkID = Default, $v
 	EndIf
 
 	if $nLinkID = Default Then
-		$nLinkID = __netcode_RandomPW(20, 1)
+		$nLinkID = __netcode_RandomPW(40, 1)
 	Else
 ;~ 		if StringLen($nLinkID) <> 20 Then
 ;~ 			__Trace_Error(2, 0, "The LinkID is <> 20 len. It must be exactly of len 20")
