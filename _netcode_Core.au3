@@ -174,7 +174,8 @@ Global $__net_hInt_hAESAlgorithmProvider = -1 ; AES provider handle
 Global $__net_hInt_hRSAAlgorithmProvider = -1 ; RSA provider handle
 Global $__net_hInt_hSHAAlgorithmProvider = -1 ; SHA provider handle
 Global $__net_nInt_CryptionIterations = 1000 ; i have to research the topic of Iterations
-Global $__net_nInt_TemporarySRandomFix = Random(1000000, 999999999, 1)
+;~ Global $__net_nInt_TemporarySRandomFix = Random(1000000, 999999999, 1)
+__netcode_SRandomTemporaryFix()
 
 ; ===================================================================================================================================================
 ; Constants
@@ -184,7 +185,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5"
+Global Const $__net_sNetcodeVersion = "0.1.5.1"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -1772,10 +1773,11 @@ Func __netcode_ManageHandshake($hSocket, $sPackages)
 	$sPackages = StringToBinary($sPackages)
 
 	; temporary fix
-	$__net_nInt_TemporarySRandomFix += 1
-	SRandom($__net_nInt_TemporarySRandomFix)
+;~ 	$__net_nInt_TemporarySRandomFix += 1
+;~ 	SRandom($__net_nInt_TemporarySRandomFix)
+;~ 	__netcode_SRandomTemporaryFix()
 
-	Local $sPW = __netcode_RandomPW(20, 3)
+	Local $sPW = __netcode_RandomPW(40, 3)
 	Local $sEncryptionKey = __netcode_AESDeriveKey($sPW, "packetencryption")
 
 	; encrypt AES Key with the the pub from the client
@@ -5145,6 +5147,7 @@ Func __netcode_RandomPW($nLenght = 12, $sChoice = '5', $sPass = '')
 	EndIf
 
 	For $i = 1 To $nLenght
+		__netcode_SRandomTemporaryFix()
 		$sPass &= StringMid($key[$sChoice - 1], Random(1, StringLen($key[$sChoice - 1]), 1), 1)
 	Next
 	Return __Trace_FuncOut("__netcode_RandomPW", $sPass)
@@ -5161,9 +5164,39 @@ Func __netcode_StringRepeat($sString, $nCount)
 EndFunc   ;==>__netcode_StringRepeat
 
 ; ignore this func, its never called, but used to fix au3check failing with "warning: $var: declared, but not used in func."
-; while the $var is in reality used with Eval() and therefore used.
+; while the $var is in reality used with Eval() and therefore the warning is wrong.
 Func __netcode_Au3CheckFix(ByRef $vVar)
 	Return $vVar + 1
+EndFunc
+
+; this func patches a security issue mentioned in 0.1.5. SRandom affects Random in a way that it is possible to calculate the used
+; password for the packet encryption. This is possible through back calculating the used Seed through the information send in the 'auth' stage.
+; Sadly it isnt possible to reset SRandom() to a non Seed, so to combat said issue we create an array with 1000 elements with random numbers
+; before SRandom ever is called here. SRandom can be set to these random number right before the UDF creates a password for a session key.
+; The issue is faced further once the Diffie Hellman Key exchange is implemented.
+; This function is used before each Random call in __netcode_RandomPW(). So to guess the password by using the SRandom seed is going to take
+; as long as cracking the password itself, if not longer.
+Func __netcode_SRandomTemporaryFix()
+	Local Static $arBuffer[0], $nIndex = 0
+	If UBound($arBuffer) = 0 Then
+		ReDim $arBuffer[1000]
+		For $i = 0 To 999
+			For $iS = 1 To 18
+				$arBuffer[$i] &= Random(0, 9, 1)
+			Next
+			$arBuffer[$i] = Number($arBuffer[$i])
+
+			if Random(0, 1, 1) = 1 Then $arBuffer[$i] *= -1
+		Next
+	EndIf
+	SRandom($arBuffer[$nIndex])
+	$arBuffer[$nIndex] += 1
+
+	$nIndex += 1
+	if $nIndex > 999 Then $nIndex = 0
+
+	;123456789012345678
+;~ 	_ArrayDisplay($arBuffer)
 EndFunc
 
 ; This is a part of the _storageS.au3 UDF - not public

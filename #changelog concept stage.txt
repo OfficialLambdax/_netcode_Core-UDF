@@ -1,3 +1,11 @@
+21.10.2021 (DD/MM/YYYY) 0.1.5.1
+	Fixes
+		- Said security issue mentioned in 0.1.5 was repatched, after reevaluating my last patch, to provide greater security and to make it impossible to guess the session key through the Seed
+		
+	Changes
+		- The password len for the session key is now extended to 40 Chars.
+
+
 21.10.2021 (DD/MM/YYYY) 0.1.5
 	Changes
 		- MILDLY SCRIPT BREAKING CHANGE
@@ -11,7 +19,7 @@
 		If the disconnect event callback still just has a single param for the socket then netcode notices that and will try to call it with just a single param after calling it with 3 failed.
 
 
-		- The connection event got overhault and requires now 3 params or the call will fail. Similiar to the overhault disconenct event _netcode wil notice a wrong amount of params and will call the event with just two in that case then.
+		- The connection event got overhauled and requires now 3 params or the call will fail. Similiar to the overhauled disconnect event _netcode wil notice a wrong amount of params and will call the event with just two in that case then.
 		1 $hSocket
 		2 $nStage = succeded stage number
 		3 $vData = will give additional data of the stage that can be of any variable type
