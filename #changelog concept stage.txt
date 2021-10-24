@@ -1,4 +1,16 @@
-21.10.2021 (DD/MM/YYYY) 0.1.5.1
+24.10.2021 (DD/MM/YYYY) 0.1.5.2
+	Additions
+		- _netcode_SocketGetSendBytesPerSecond() and _netcode_SocketGetRecvBytesPerSecond() got added.
+		Both functions can be used to obtain the send and received bytes per second for a given socket.
+		If a parent socket is given, then the funcs read the bytes per second for each client and add them together.
+		Overall both funcs should be quite accurate, but information is delayed by 1 second. So if you call said functions
+		then you get returned what was calculated the last second.
+		
+	Changes
+		- __netcode_TCPRecv() now no longer returns @extended = 1 when 'recv' returned 0 for a gracefull disconnect. In that case said func will return @error = 1. @extended is now used only for __Trace_Error() and to contain the recv bytes len for the funcs from above.
+
+
+23.10.2021 (DD/MM/YYYY) 0.1.5.1
 	Fixes
 		- Said security issue mentioned in 0.1.5 was repatched, after reevaluating my last patch, to provide greater security and to make it impossible to guess the session key through the Seed
 		

@@ -185,7 +185,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.1"
+Global Const $__net_sNetcodeVersion = "0.1.5.2"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -726,6 +726,48 @@ Func _netcode_TCPBroadcast(Const $hSocket, $sEvent, $sData, $bWaitForFloodPreven
 	Next
 	__Trace_FuncOut("_netcode_TCPBroadcast")
 EndFunc   ;==>_netcode_TCPBroadcast
+
+; get the bytes send per second in bytes ($nMode = 0), kilobytes (1) or megabytes (2).
+; The given socket can be a client socket or a parent socket. If a parent is given then the bytes per second of all its clients is added together and returned.
+Func _netcode_SocketGetSendBytesPerSecond(Const $hSocket, $nMode = 0)
+	__Trace_FuncIn("_netcode_SocketGetSendBytesPerSecond")
+
+	Local $nBytesPerSecond = 0
+	Switch __netcode_CheckSocket($hSocket)
+		Case 1 ; parent
+			Local $arClients = __netcode_ParentGetClients($hSocket)
+			For $i = 0 To UBound($arClients) - 1
+				$nBytesPerSecond += __netcode_SocketGetSendBytesPerSecond($arClients[$i], $nMode)
+			Next
+
+		Case 2 ; client
+			$nBytesPerSecond = __netcode_SocketGetSendBytesPerSecond($hSocket, $nMode)
+	EndSwitch
+
+	__Trace_FuncOut("_netcode_SocketGetSendBytesPerSecond")
+	Return $nBytesPerSecond
+EndFunc
+
+; get the bytes received per second in bytes ($nMode = 0), kilobytes (1) or megabytes (2).
+; The given socket can be a client socket or a parent socket. If a parent is given then the bytes per second of all its clients is added together and returned.
+Func _netcode_SocketGetRecvBytesPerSecond(Const $hSocket, $nMode = 0)
+	__Trace_FuncIn("_netcode_SocketGetRecvBytesPerSecond")
+
+	Local $nBytesPerSecond = 0
+	Switch __netcode_CheckSocket($hSocket)
+		Case 1 ; parent
+			Local $arClients = __netcode_ParentGetClients($hSocket)
+			For $i = 0 To UBound($arClients) - 1
+				$nBytesPerSecond += __netcode_SocketGetRecvBytesPerSecond($arClients[$i], $nMode)
+			Next
+
+		Case 2 ; client
+			$nBytesPerSecond = __netcode_SocketGetRecvBytesPerSecond($hSocket, $nMode)
+	EndSwitch
+
+	__Trace_FuncOut("_netcode_SocketGetRecvBytesPerSecond")
+	Return $nBytesPerSecond
+EndFunc
 
 #cs
  Highly experimental !!
@@ -2182,7 +2224,8 @@ Func __netcode_SendPacketQuo()
 	For $i = 0 To UBound($arTempSendQuo) - 1
 
 		; send non-blocking
-		__netcode_TCPSend($arTempSendQuo[$i], StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo')), False)
+;~ 		__netcode_TCPSend($arTempSendQuo[$i], StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo')), False)
+		__netcode_SocketSetSendBytesPerSecond($arTempSendQuo[$i], __netcode_TCPSend($arTempSendQuo[$i], StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo')), False))
 		$nError = @error
 
 		; empty the packet quo for the socket
@@ -2903,16 +2946,22 @@ Func __netcode_RecvPackages(Const $hSocket)
 	Local $hTimer = TimerInit()
 	Local $bDisconnect = False
 	Local $nError = 0
+	Local $nBytes = 0
 
 	Do
 ;~ 		TCPRecv ; reference
 ;~ 		$sTCPRecv = __netcode_TCPRecv_Backup($hSocket, 65536, 1)
 		$sTCPRecv = __netcode_TCPRecv($hSocket)
 		$nError = @error
-		If @extended Then $bDisconnect = True
+		$nBytes = @extended
 		Switch $nError
 			Case 10050 To 10054
 				$bDisconnect = True
+
+
+			Case 1
+				$bDisconnect = True
+				$nError = 0
 
 		EndSwitch
 
@@ -2923,6 +2972,8 @@ Func __netcode_RecvPackages(Const $hSocket)
 			__Trace_Error($nError, 1, "Disconnected")
 			Return SetError($nError, 1, __Trace_FuncOut("__netcode_RecvPackages", False))
 		EndIf
+
+		__netcode_SocketSetRecvBytesPerSecond($hSocket, $nBytes)
 
 		$sPackages &= BinaryToString($sTCPRecv)
 		; todo ~ check size and if it exceeds the max Recv Buffer Size
@@ -3370,10 +3421,16 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 		_storageS_Overwrite($hSocket, '_netcode_SocketExecutionOnHold', False) ; OnHold on False
 		Local $arBuffer[0]
 		_storageS_Overwrite($hSocket, '_netcode_EventStorage', $arBuffer) ; create event buffer with 0 elements
+		Local $arBuffer[1000]
+		For $i = 0 To 999
+			$arBuffer[$i] = 0
+		Next
 		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecond', 0)
-		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondTimer', TimerInit())
-		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecond', 0) ; todo
-		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondTimer', TimerInit()) ; todo
+		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondArray', $arBuffer)
+		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondSecond', @SEC)
+		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecond', 0)
+		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondArray', $arBuffer)
+		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondSecond', @SEC)
 		__netcode_SocketSetPacketEncryption($hSocket, __netcode_SocketGetPacketEncryption($hListenerSocket))
 		__netcode_SocketSetIPAndPort($hSocket, $sIP, $nPort) ; set ip and port given in _netcode_TCPConnect()
 		__netcode_SocketSetUsernameAndPassword($hSocket, $sUsername, $sPassword)
@@ -3731,27 +3788,39 @@ Func __netcode_SocketGetSerializerStrings(Const $hSocket)
 EndFunc
 #ce have to see if i add this. the sParam and serializer functions need access to the socket id. currently they dont have that
 
-#cs
-Func __netcode_SocketSetSendBytesPerSecond(Const $hSocket, $nBytesSend, $nTime)
-	if $nBytesSend = 0 Then Return
-;~ 	ConsoleWrite(Round(Round($nBytesSend / ($nTime / 1000), 0) / 1048576, 2) & @CRLF)
-	_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecond', Round($nBytesSend / ($nTime / 1000), 0))
-	_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondTimer', TimerInit())
-EndFunc
+Func __netcode_SocketSetSendBytesPerSecond(Const $hSocket, $nBytes)
+	__Trace_FuncIn("__netcode_SocketSetSendBytesPerSecond")
+	if $nBytes = 0 Then Return __Trace_FuncOut("__netcode_SocketSetSendBytesPerSecond")
 
-Func __netcode_SocketResetBytesPerSecond(Const $hSocket)
-	if TimerDiff(_storageS_Read($hSocket, '_netcode_SendBytesPerSecondTimer')) > 1000 Then
-		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecond', 0)
-		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondTimer', TimerInit())
+	Local $arBuffer = _storageS_Read($hSocket, '_netcode_SendBytesPerSecondArray')
+	Local $nCalculatedSecond = _storageS_Read($hSocket, '_netcode_SendBytesPerSecondSecond')
+
+	if $nCalculatedSecond <> @SEC Then
+		Local $nBytesPerSecond = 0
+		For $i = 0 To 999
+			$nBytesPerSecond += $arBuffer[$i]
+			$arBuffer[$i] = 0
+		Next
+
+		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecond', $nBytesPerSecond)
+		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondSecond', @SEC)
 	EndIf
 
-	; ~ todo recv counter
+	$arBuffer[@MSEC] += $nBytes
+	_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondArray', $arBuffer)
+	__Trace_FuncOut("__netcode_SocketSetSendBytesPerSecond")
 EndFunc
 
 ; currently only works for client sockets
 Func __netcode_SocketGetSendBytesPerSecond(Const $hSocket, $nMode = 0)
 	Local $nBytesPerSecond = _storageS_Read($hSocket, '_netcode_SendBytesPerSecond')
-	if $nBytesPerSecond = 0 Then Return 0
+
+	if $nBytesPerSecond = 0 Then
+		Return 0
+	Else
+		; if the info is older then 2 seconds then return 0
+		if @SEC - _storageS_Read($hSocket, '_netcode_SendBytesPerSecondSecond') >= 2 Then Return 0
+	EndIf
 
 	Switch $nMode
 		Case 0 ; bytes
@@ -3768,7 +3837,56 @@ Func __netcode_SocketGetSendBytesPerSecond(Const $hSocket, $nMode = 0)
 
 	EndSwitch
 EndFunc
-#ce
+
+Func __netcode_SocketSetRecvBytesPerSecond(Const $hSocket, $nBytes)
+	__Trace_FuncIn("__netcode_SocketSetRecvBytesPerSecond")
+	if $nBytes = 0 Then Return __Trace_FuncOut("__netcode_SocketSetRecvBytesPerSecond")
+
+	Local $arBuffer = _storageS_Read($hSocket, '_netcode_RecvBytesPerSecondArray')
+	Local $nCalculatedSecond = _storageS_Read($hSocket, '_netcode_RecvBytesPerSecondSecond')
+
+	if $nCalculatedSecond <> @SEC Then
+		Local $nBytesPerSecond = 0
+		For $i = 0 To 999
+			$nBytesPerSecond += $arBuffer[$i]
+			$arBuffer[$i] = 0
+		Next
+
+		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecond', $nBytesPerSecond)
+		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondSecond', @SEC)
+;~ 		ConsoleWrite(_storageS_Read($hSocket, '_netcode_RecvBytesPerSecond') & @CRLF)
+	EndIf
+
+	$arBuffer[@MSEC] += $nBytes
+	_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondArray', $arBuffer)
+	__Trace_FuncOut("__netcode_SocketSetRecvBytesPerSecond")
+EndFunc
+
+Func __netcode_SocketGetRecvBytesPerSecond(Const $hSocket, $nMode = 0)
+	Local $nBytesPerSecond = _storageS_Read($hSocket, '_netcode_RecvBytesPerSecond')
+;~ 	ConsoleWrite($nBytesPerSecond & @CRLF)
+	if $nBytesPerSecond = 0 Then
+		Return 0
+	Else
+		; if the info is older then 2 seconds then return 0
+		if @SEC - _storageS_Read($hSocket, '_netcode_RecvBytesPerSecondSecond') >= 2 Then Return 0
+	EndIf
+
+	Switch $nMode
+		Case 0 ; bytes
+			Return $nBytesPerSecond
+
+		Case 1 ; kbytes
+			Return Round($nBytesPerSecond / 1024, 2)
+
+		Case 2 ; mbytes
+			Return Round($nBytesPerSecond / 1048576, 2)
+
+;~ 		Case 3 ; gbytes
+			; do we need that?
+
+	EndSwitch
+EndFunc
 
 ; this functions only sets the var type, it doesnt convert the data
 ; so a String wont be set with StringToBinary() it will just be set with Binary()
@@ -3955,8 +4073,8 @@ Func __netcode_TCPRecv(Const $hSocket)
 	; "If the connection has been gracefully closed, the return value is zero."
 	if $arRet[0] = 0 Then
 ;~ 		$nError = __netcode_WSAGetLastError()
-		__Trace_Error(0, 1, "Socket Error")
-		Return SetError(0, 1, __Trace_FuncOut("__netcode_TCPRecv", False))
+		__Trace_Error(1, 0, "Socket Error")
+		Return SetError(1, 0, __Trace_FuncOut("__netcode_TCPRecv", False))
 	EndIf
 
 	if $arRet[0] = -1 Then
@@ -3976,7 +4094,7 @@ Func __netcode_TCPRecv(Const $hSocket)
 ;~ 	if @ScriptName = "Server.au3" then ConsoleWrite($hSocket & @TAB & @TAB & BinaryToString(BinaryMid(DllStructGetData($tRecvBuffer, 1), 1, $arRet[0])) & @CRLF)
 
 	__Trace_FuncOut("__netcode_TCPRecv")
-	Return BinaryMid(DllStructGetData($tRecvBuffer, 1), 1, $arRet[0])
+	Return SetError(0, $arRet[0], BinaryMid(DllStructGetData($tRecvBuffer, 1), 1, $arRet[0]))
 EndFunc
 
 ;~ #cs
