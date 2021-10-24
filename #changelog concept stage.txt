@@ -1,3 +1,19 @@
+24.10.2021 (DD/MM/YYYY) 0.1.5.3
+	Additions
+		- _netcode_GetDynamicPacketContentSize() got implemented. While working in this project i noticed that certain
+		packet sizes work better then others. A larger packet size of 1.25 MB for example worked very well for the 'netcode' managemode
+		on my pc. But the packet size of 0.1 MB best on the 'rawlinked' managemode. Both values are not the best for every pc, the overall best packet size for performance seems to vary from pc to pc. Thats why i implemented said function. However the function is not ment to be used yet and because of it out commented.
+		
+	Changes
+		- The Default Recv Len in the UDF Header got changed to 256 KB instead of the previous 1.25 MB
+		
+		- The functions that counted the send and received bytes where implemented in a new way. In the previous they where placed
+		in a inefficient way and besides that the func that counted the send bytes was prone to fail because __netcode_TCPSend() that is set to not block wasnt, because of this, always returning the send bytes. Therefore these couldnt be counted.
+		
+	Remarks
+		- The previous inefficient addition of the BytesPerSecond function slowed down the UDF by about 15 MB/s. Duo to the recent change the lost performance was nearly completly recovered.
+
+
 24.10.2021 (DD/MM/YYYY) 0.1.5.2
 	Additions
 		- _netcode_SocketGetSendBytesPerSecond() and _netcode_SocketGetRecvBytesPerSecond() got added.

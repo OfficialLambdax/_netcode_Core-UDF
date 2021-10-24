@@ -107,7 +107,7 @@
 Global $__net_nMaxRecvBufferSize = 1048576 * 5
 
 ; the default recv len
-Global $__net_nDefaultRecvLen = 1048576 * 1.25 ; has to be smaller then $__net_nMaxRecvBufferSize
+Global $__net_nDefaultRecvLen = 1048576 * 0.25 ; has to be smaller then $__net_nMaxRecvBufferSize
 
 ; __netcode_RecvPackages() will never take longer then this timeout is set to
 Global $__net_nTCPRecvBufferEmptyTimeout = 20 ; ms
@@ -185,7 +185,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.2"
+Global Const $__net_sNetcodeVersion = "0.1.5.3"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -907,10 +907,75 @@ EndFunc   ;==>_netcode_GetDefaultPacketContentSize
 ; here we basically measure the bytes per second of the given client socket and rise / lower the size to check what increases performance.
 ; thats why on the first call this function wont return the best result. It will start from the $__net_nDefaultRecvLen.
 ; note for me - if compression is enabled this function maybe will calculate wrong sizes because compression is dynamic to what data flows into it.
-Func _netcode_GetDynamicPacketContentSize(Const $hSocket, $sEvent = "", $nMarge = 0.9)
-	__Trace_FuncIn("_netcode_GetDynamicPacketContentSize", $sEvent, $nMarge)
+Func _netcode_GetDynamicPacketContentSize(Const $hSocket)
+	__Trace_FuncIn("_netcode_GetDynamicPacketContentSize", $hSocket)
+
+	Local $nDynamicSize = _storageS_Read($hSocket, '_netcode_PacketDynamicSize')
+
+	if $nDynamicSize = 0 Then
+		Local $nSize = 0
+		Local $nSec = 0
+		Local $nBest = 0
+		Local $nBestBytesPerSecond = 0
+		Local $sData = ""
+		Local $s256KB = ""
+		Local $nBytesPerSecond = 0
+		Local $nCount = 0
+
+		For $i = 1 To 256 * 1024
+			$s256KB &= "1"
+		Next
+
+		Do
+			; create data
+			$sData = ""
+			$nSize += 256 * 1024 ; 256 kb
+			For $i = 1 To $nSize Step 256 * 1024
+				$sData &= $s256KB
+			Next
+
+			; make sure we start at the beginning of the second
+			$nSec = @SEC
+			Do
+			Until $nSec <> @SEC
+			$nSec = @SEC
+
+			; checking speed
+			$nCount = 0
+			$nBytesPerSecond = 0
+			While True
+				if __netcode_CheckSocket($hSocket) = 0 Then Return __Trace_FuncOut("_netcode_GetDynamicPacketContentSize", False) ; disconnected
+				_netcode_TCPSend($hSocket, 'netcode_internal', $sData)
+
+				_netcode_Loop($hSocket)
+
+				if $nSec <> @SEC Then
+					$nCount += 1
+					$nBytesPerSecond += __netcode_SocketGetSendBytesPerSecond($hSocket)
+					if $nCount >= 2 Then ExitLoop
+					$nSec = @SEC
+				EndIf
+
+			WEnd
+
+			$nBytesPerSecond /= 2
+			if $nBytesPerSecond > $nBestBytesPerSecond Then
+				$nBestBytesPerSecond = $nBytesPerSecond
+				$nBest = $nSize
+			EndIf
+
+			ConsoleWrite(StringLen($sData) & @TAB & @TAB & $nBytesPerSecond & @CRLF)
+
+		Until $nSize > _netcode_GetMaxPacketContentSize()
+
+		_storageS_Overwrite($hSocket, '_netcode_PacketDynamicSize', $nBest)
+		$nDynamicSize = $nBest
+	EndIf
+
+
 	__Trace_FuncOut("_netcode_GetDynamicPacketContentSize")
-	; todo
+	Return $nDynamicSize
+
 EndFunc   ;==>_netcode_GetDynamicPacketContentSize
 #ce
 
@@ -2219,13 +2284,15 @@ Func __netcode_SendPacketQuo()
 	Local $nArSize = 0
 	Local $nError = 0
 	Local $bDisconnect = False
+	Local $sData = ""
 
 	; for every socket in the filtered send quo
 	For $i = 0 To UBound($arTempSendQuo) - 1
 
 		; send non-blocking
-;~ 		__netcode_TCPSend($arTempSendQuo[$i], StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo')), False)
-		__netcode_SocketSetSendBytesPerSecond($arTempSendQuo[$i], __netcode_TCPSend($arTempSendQuo[$i], StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo')), False))
+		$sData = StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo'))
+		__netcode_TCPSend($arTempSendQuo[$i], $sData, False)
+;~ 		__netcode_SocketSetSendBytesPerSecond($arTempSendQuo[$i], __netcode_TCPSend($arTempSendQuo[$i], StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo')), False))
 		$nError = @error
 
 		; empty the packet quo for the socket
@@ -2238,7 +2305,11 @@ Func __netcode_SendPacketQuo()
 				__netcode_TCPCloseSocket($arTempSendQuo[$i])
 				__netcode_RemoveSocket($arTempSendQuo[$i], False, False, $nError)
 
+			Case Else
+				__netcode_SocketSetSendBytesPerSecond($arTempSendQuo[$i], BinaryLen($sData))
 		EndSwitch
+
+
 
 		; remove socket from the global send quo array
 		$nArSize = UBound($__net_arPacketSendQue)
@@ -2953,7 +3024,7 @@ Func __netcode_RecvPackages(Const $hSocket)
 ;~ 		$sTCPRecv = __netcode_TCPRecv_Backup($hSocket, 65536, 1)
 		$sTCPRecv = __netcode_TCPRecv($hSocket)
 		$nError = @error
-		$nBytes = @extended
+		$nBytes += @extended
 		Switch $nError
 			Case 10050 To 10054
 				$bDisconnect = True
@@ -2973,7 +3044,7 @@ Func __netcode_RecvPackages(Const $hSocket)
 			Return SetError($nError, 1, __Trace_FuncOut("__netcode_RecvPackages", False))
 		EndIf
 
-		__netcode_SocketSetRecvBytesPerSecond($hSocket, $nBytes)
+;~ 		__netcode_SocketSetRecvBytesPerSecond($hSocket, $nBytes)
 
 		$sPackages &= BinaryToString($sTCPRecv)
 		; todo ~ check size and if it exceeds the max Recv Buffer Size
@@ -2981,6 +3052,8 @@ Func __netcode_RecvPackages(Const $hSocket)
 		If TimerDiff($hTimer) > $__net_nTCPRecvBufferEmptyTimeout Then ExitLoop
 
 	Until $sTCPRecv = ''
+
+	__netcode_SocketSetRecvBytesPerSecond($hSocket, $nBytes)
 
 	Return __Trace_FuncOut("__netcode_RecvPackages", $sPackages)
 EndFunc   ;==>__netcode_RecvPackages
@@ -3419,6 +3492,7 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 		_storageS_Overwrite($hSocket, '_netcode_PacketQuo', "") ; create empty packetquo buffer
 		_storageS_Overwrite($hSocket, '_netcode_PacketQuoSend', "") ; create empty packetquo buffer
 		_storageS_Overwrite($hSocket, '_netcode_SocketExecutionOnHold', False) ; OnHold on False
+		_storageS_Overwrite($hSocket, '_netcode_PacketDynamicSize', 0) ; needs to be inherited from the parent or the server if client is from TCPConnect()
 		Local $arBuffer[0]
 		_storageS_Overwrite($hSocket, '_netcode_EventStorage', $arBuffer) ; create event buffer with 0 elements
 		Local $arBuffer[1000]
@@ -3790,23 +3864,33 @@ EndFunc
 
 Func __netcode_SocketSetSendBytesPerSecond(Const $hSocket, $nBytes)
 	__Trace_FuncIn("__netcode_SocketSetSendBytesPerSecond")
+
+	; return if zero bytes because nothing needs to be added
 	if $nBytes = 0 Then Return __Trace_FuncOut("__netcode_SocketSetSendBytesPerSecond")
 
+	; get buffer and the second it belongs too
 	Local $arBuffer = _storageS_Read($hSocket, '_netcode_SendBytesPerSecondArray')
 	Local $nCalculatedSecond = _storageS_Read($hSocket, '_netcode_SendBytesPerSecondSecond')
 
+	; if its the next second then
 	if $nCalculatedSecond <> @SEC Then
+
+		; calculate how much bytes per second where send and also clean the buffer
 		Local $nBytesPerSecond = 0
 		For $i = 0 To 999
 			$nBytesPerSecond += $arBuffer[$i]
 			$arBuffer[$i] = 0
 		Next
 
+		; and write said information to the storage
 		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecond', $nBytesPerSecond)
 		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondSecond', @SEC)
 	EndIf
 
+	; add the current send bytes to the array index of the ms it was send
 	$arBuffer[@MSEC] += $nBytes
+
+	; update buffer
 	_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondArray', $arBuffer)
 	__Trace_FuncOut("__netcode_SocketSetSendBytesPerSecond")
 EndFunc
@@ -3818,7 +3902,7 @@ Func __netcode_SocketGetSendBytesPerSecond(Const $hSocket, $nMode = 0)
 	if $nBytesPerSecond = 0 Then
 		Return 0
 	Else
-		; if the info is older then 2 seconds then return 0
+		; if the info is old as- or older then 2 seconds then return 0
 		if @SEC - _storageS_Read($hSocket, '_netcode_SendBytesPerSecondSecond') >= 2 Then Return 0
 	EndIf
 
@@ -3840,35 +3924,44 @@ EndFunc
 
 Func __netcode_SocketSetRecvBytesPerSecond(Const $hSocket, $nBytes)
 	__Trace_FuncIn("__netcode_SocketSetRecvBytesPerSecond")
+
+	; return if zero bytes because nothing needs to be added
 	if $nBytes = 0 Then Return __Trace_FuncOut("__netcode_SocketSetRecvBytesPerSecond")
 
+	; get buffer and the second it belongs too
 	Local $arBuffer = _storageS_Read($hSocket, '_netcode_RecvBytesPerSecondArray')
 	Local $nCalculatedSecond = _storageS_Read($hSocket, '_netcode_RecvBytesPerSecondSecond')
 
+	; if its the next second then
 	if $nCalculatedSecond <> @SEC Then
+
+		; calculate how much bytes per second where received and also clean the buffer
 		Local $nBytesPerSecond = 0
 		For $i = 0 To 999
 			$nBytesPerSecond += $arBuffer[$i]
 			$arBuffer[$i] = 0
 		Next
 
+		; and write said information to the storage
 		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecond', $nBytesPerSecond)
 		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondSecond', @SEC)
-;~ 		ConsoleWrite(_storageS_Read($hSocket, '_netcode_RecvBytesPerSecond') & @CRLF)
 	EndIf
 
+	; add the current received bytes to the array index of the ms it was received
 	$arBuffer[@MSEC] += $nBytes
+
+	; update buffer
 	_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondArray', $arBuffer)
 	__Trace_FuncOut("__netcode_SocketSetRecvBytesPerSecond")
 EndFunc
 
 Func __netcode_SocketGetRecvBytesPerSecond(Const $hSocket, $nMode = 0)
 	Local $nBytesPerSecond = _storageS_Read($hSocket, '_netcode_RecvBytesPerSecond')
-;~ 	ConsoleWrite($nBytesPerSecond & @CRLF)
+
 	if $nBytesPerSecond = 0 Then
 		Return 0
 	Else
-		; if the info is older then 2 seconds then return 0
+		; if the info is old as- or older then 2 seconds then return 0
 		if @SEC - _storageS_Read($hSocket, '_netcode_RecvBytesPerSecondSecond') >= 2 Then Return 0
 	EndIf
 
