@@ -1,3 +1,15 @@
+25.10.2021 (DD/MM/YYYY) 0.1.5.4
+	Fixes
+		- both the __netcode_SocketSetSendBytesPerSecond() and __netcode_SocketSetRecvBytesPerSecond() function could rarely crash
+		duo to a missing check. That was fixed.
+		
+	Additions
+		- _netcode_SocketGetRecvPacketPerSecond() and _netcode_SocketGetSendPacketPerSecond() got added. Both function retrieve the amount of packets that are send and received. If a parent is given then the functions will add the packet counts of all clients together.
+		
+	Changes
+		- the internal packet confirmation implementation got changed. Previously each packet got confirmed to the sender once it got executed. Duo to that the server send exactly the same amount of packets out that came in. This is changed. The Receiver now collects the ids of the Packets it executed and send them after the exeuction of all in a single packet. This reduced the receiver responses dramatically.
+
+
 24.10.2021 (DD/MM/YYYY) 0.1.5.3
 	Additions
 		- _netcode_GetDynamicPacketContentSize() got implemented. While working in this project i noticed that certain
