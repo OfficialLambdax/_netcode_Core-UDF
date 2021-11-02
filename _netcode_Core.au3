@@ -78,10 +78,6 @@
 			https://docs.microsoft.com/en-us/azure/iot-hub/tutorial-x509-introduction
 
 
-		- Reduce the netcode_internal response packet amount. Send one per buffer empty instead of one per packet. So one large packet instead of multiple small. That should
-		massively increase the speed.
-
-
 	Not Possible
 
 		ASync requires to set GUIRegisterMsg(), but Autoit is limited to 256 msg's. Also when registering even just a single
@@ -129,7 +125,7 @@ Global $__net_nMaxPasswordLen = 30 ; max password len for the User Stage. If the
 
 ; enables the Tracer. Will slow down the UDF by about 5 %, but needs to be True if you want to use any of the options below.
 ; never toggle THIS option in your script or it might hard crash. All others can be toggled anytime.
-Global $__net_bTraceEnable = False
+Global $__net_bTraceEnable = True
 
 ; will log every call of a UDF function to the console in a ladder format. Will massively decrease the UDF speed because it floods the console.
 Global $__net_bTraceLogEnable = False
@@ -167,6 +163,7 @@ Global $__net_sSerializeArrayYSeperator = '152b7l27E6' ; 10 bytes
 Global $__net_sSerializeArrayXSeperator = '3615RW0117' ; 10 bytes
 Global $__net_arPacketSendQue[0]
 Global $__net_arPacketSendQueWait[0]
+Global $__net_arPacketSendQueIDWait[0]
 Global $__net_arGlobalIPList[0]
 Global $__net_bGlobalIPListIsWhitelist = False
 Global $__net_hInt_bcryptdll = -1 ; bcrypt.dll handle
@@ -187,7 +184,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.4"
+Global Const $__net_sNetcodeVersion = "0.1.5.5"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -242,6 +239,7 @@ Func _netcode_Loop(Const $hListenerSocket)
 	EndIf
 
 	; work through send quo
+	__netcode_SendPacketQuoIDQuerry()
 	__netcode_SendPacketQuo()
 
 	Switch $nSocketIs
@@ -651,7 +649,7 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 	__Trace_FuncIn("_netcode_TCPSend", $hSocket, $sEvent, "$sData", $bWaitForFloodPrevention)
 	Local $sPackage = ""
 	Local $nError = 0
-;~ 	Local $sID = ""
+	Local $sID = ""
 
 	if $sEvent = 'connection' Or $sEvent = 'disconnected' Then
 		__Trace_Error(10, 0, "The " & $sEvent & " event is an invalid event to be send")
@@ -661,7 +659,7 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 	Do
 		$sPackage = __netcode_CreatePackage($hSocket, $sEvent, $sData, True)
 		$nError = @error
-;~ 		$sID = @extended
+		$sID = @extended
 
 ;~ 		if StringLen($sPackage) > _netcode_GetMaxPacketContentSize($sEvent, 1) Then Return SetError(10, 0, False) ; this packet is to big to ever get send
 		If StringLen($sPackage) > $__net_nMaxRecvBufferSize Then Return SetError(10, 0, False) ; this packet is to big to ever get send
@@ -675,7 +673,9 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 			EndIf
 
 			; recv manage execute
-			_netcode_RecvManageExecute($hSocket)
+;~ 			_netcode_RecvManageExecute($hSocket)
+;~ 			_netcode_Loop($hSocket)
+			__netcode_SendPacketQuoIDQuerry()
 		EndIf
 	Until $nError = 0
 
@@ -688,7 +688,11 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 	If $sEvent <> 'netcode_internal' Then __netcode_AddToSafetyBuffer($hSocket, $sPackage, StringLen($sPackage))
 
 	; add packet to que
-	__netcode_AddPacketToQue($hSocket, $sPackage)
+	__netcode_AddPacketToQue($hSocket, $sPackage, $sID)
+;~ 	if $sID == False Then
+;~ 		ClipPut($sPackage)
+;~ 		MsgBox(0, "", "1")
+;~ 	EndIf
 
 	__netcode_SocketSetSendPacketPerSecond($hSocket, 1)
 
@@ -1761,7 +1765,7 @@ Func __netcode_ExecutePackets(Const $hSocket)
 	Local $arPackages = __netcode_SocketGetExecutionBufferValues($hSocket)
 	Local $nCurrentBufferIndex = @error
 	Local $nCurrentIndex = _storageS_Read($hSocket, '_netcode_ExecutionIndex')
-	Local $sID = ""
+;~ 	Local $sID = ""
 
 	For $i = $nCurrentIndex To UBound($arPackages) - 1
 		If $arPackages[$i][0] = '' Then ExitLoop
@@ -1769,7 +1773,7 @@ Func __netcode_ExecutePackets(Const $hSocket)
 		__netcode_ExecuteEvent($hSocket, $arPackages[$i][0], $arPackages[$i][1])
 
 ;~ 		_netcode_TCPSend($hSocket, 'netcode_internal', 'packet_confirmation|' & $i, False)
-		$sID &= $i & ','
+;~ 		$sID &= $i & ','
 
 		$arPackages[$i][0] = ''
 		$arPackages[$i][1] = ''
@@ -1779,10 +1783,10 @@ Func __netcode_ExecutePackets(Const $hSocket)
 
 	Next
 
-	if $sID <> "" Then
-		$sID = StringTrimRight($sID, 1) ; cutting the last ','
-		_netcode_TCPSend($hSocket, 'netcode_internal', 'packet_confirmation|' & $sID, False)
-	EndIf
+;~ 	if $sID <> "" Then
+;~ 		$sID = StringTrimRight($sID, 1) ; cutting the last ','
+;~ 		_netcode_TCPSend($hSocket, 'netcode_internal', 'packet_confirmation|' & $sID, False)
+;~ 	EndIf
 
 	__netcode_SocketSetExecutionBufferValues($hSocket, $nCurrentBufferIndex, $arPackages)
 	_storageS_Overwrite($hSocket, '_netcode_ExecutionIndex', $nCurrentIndex)
@@ -2296,8 +2300,9 @@ Func __netcode_PreRecvPackages(Const $hSocket)
 	Return __Trace_FuncOut("__netcode_PreRecvPackages", $sPackage)
 EndFunc   ;==>__netcode_PreRecvPackages
 
-Func __netcode_AddPacketToQue(Const $hSocket, $sPackage)
-	__Trace_FuncIn("__netcode_AddPacketToQue", $hSocket, "$sPackage")
+
+Func __netcode_AddPacketToQue(Const $hSocket, $sPackage, $nID = False)
+	__Trace_FuncIn("__netcode_AddPacketToQue", $hSocket, "$sPackage", $nID)
 	Local $nArSize = UBound($__net_arPacketSendQue)
 
 	Local $nIndex = -1
@@ -2314,9 +2319,15 @@ Func __netcode_AddPacketToQue(Const $hSocket, $sPackage)
 	EndIf
 
 	_storageS_Append($hSocket, '_netcode_PacketQuo', $sPackage)
-	__Trace_FuncOut("__netcode_AddPacketToQue")
+	If $nID == False Then ; if Not $nID == False Then <- does not work If $nID <> False would also be True if $nID = 0. So it had to be done like here
+	Else
+		_storageS_Append($hSocket, '_netcode_PacketQuoIDQuo', $nID & ',')
+	EndIf
+__Trace_FuncOut("__netcode_AddPacketToQue")
 EndFunc   ;==>__netcode_AddPacketToQue
 
+;~ _storageS_Overwrite($hSocket, '_netcode_PacketQuoIDQuo', "")
+;~ _storageS_Overwrite($hSocket, '_netcode_PacketQuoIDWait', "")
 ; requires heavy testing to make sure that 'send' doesnt fail
 Func __netcode_SendPacketQuo()
 	__Trace_FuncIn("__netcode_SendPacketQuo")
@@ -2339,11 +2350,11 @@ Func __netcode_SendPacketQuo()
 
 	; for every socket in the filtered send quo
 	For $i = 0 To UBound($arTempSendQuo) - 1
+;~ 		ConsoleWrite(_storageS_Read($arTempSendQuo[$i], '_netcode_SafetyBufferSize') & @CRLF)
 
 		; send non-blocking
 		$sData = StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo'))
 		__netcode_TCPSend($arTempSendQuo[$i], $sData, False)
-;~ 		__netcode_SocketSetSendBytesPerSecond($arTempSendQuo[$i], __netcode_TCPSend($arTempSendQuo[$i], StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo')), False))
 		$nError = @error
 
 		; empty the packet quo for the socket
@@ -2356,8 +2367,26 @@ Func __netcode_SendPacketQuo()
 				__netcode_TCPCloseSocket($arTempSendQuo[$i])
 				__netcode_RemoveSocket($arTempSendQuo[$i], False, False, $nError)
 
+			Case 10035
+				__netcode_SocketSetSendBytesPerSecond($arTempSendQuo[$i], BinaryLen($sData))
+				Local $arIDs = StringSplit(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo'), ',', 1)
+				For $iS = 1 To $arIDs[0]
+					__netcode_RemoveFromSafetyBuffer($arTempSendQuo[$i], $arIDs[$iS])
+				Next
+
 			Case Else
 				__netcode_SocketSetSendBytesPerSecond($arTempSendQuo[$i], BinaryLen($sData))
+				ReDim $__net_arPacketSendQueIDWait[UBound($__net_arPacketSendQueIDWait) + 1]
+				$__net_arPacketSendQueIDWait[UBound($__net_arPacketSendQueIDWait) - 1] = $arTempSendQuo[$i]
+
+				if _storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo') = "" Then
+					ClipPut(BinaryToString($sData))
+					MsgBox(0, "", "")
+				EndIf
+
+				_storageS_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoIDWait', _storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo'))
+				_storageS_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo', "")
+
 		EndSwitch
 
 
@@ -2385,6 +2414,48 @@ Func __netcode_SendPacketQuo()
 	Next
 
 	__Trace_FuncOut("__netcode_SendPacketQuo")
+EndFunc
+
+Func __netcode_SendPacketQuoIDQuerry()
+	if UBound($__net_arPacketSendQueIDWait) = 0 Then Return
+
+;~ 	ConsoleWrite(UBound($__net_arPacketSendQueIDWait) & @CRLF)
+
+	Local $arTempSendQuo = __netcode_SocketSelect($__net_arPacketSendQueIDWait, False)
+	if UBound($arTempSendQuo) = 0 Then Return
+
+;~ 	_ArrayDisplay($__net_arPacketSendQueIDWait, @ScriptName)
+
+	Local $arIDs = ""
+	Local $nArSize = 0
+	Local $bFound = False
+
+	For $i = 0 To UBound($arTempSendQuo) - 1
+		$arIDs = StringSplit(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuoIDWait'), ',', 1)
+;~ 		_ArrayDisplay($arIDs, @ScriptName)
+
+		For $iS = 1 To $arIDs[0]
+			if $arIDs[$iS] = "" Then ContinueLoop
+			__netcode_RemoveFromSafetyBuffer($arTempSendQuo[$i], $arIDs[$iS])
+		Next
+
+		Do
+			$bFound = False
+			$nArSize = UBound($__net_arPacketSendQueIDWait)
+			For $iS = 0 To $nArSize - 1
+				if $__net_arPacketSendQueIDWait[$iS] = $arTempSendQuo[$i] Then
+
+					$__net_arPacketSendQueIDWait[$iS] = $__net_arPacketSendQueIDWait[$nArSize - 1]
+					ReDim $__net_arPacketSendQueIDWait[$nArSize - 1]
+					$bFound = True
+
+					ExitLoop
+				EndIf
+			Next
+		Until Not $bFound
+
+		_storageS_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoIDWait', '')
+	Next
 EndFunc
 
 #cs
@@ -2715,17 +2786,17 @@ Func __netcode_EventInternal(Const $hSocket, $sData)
 	Local $sPacket = ""
 
 	Switch $arData[1]
-		Case 'packet_confirmation'
-			Local $arRet = StringSplit($arData[2], ',', 1)
-			For $i = 1 To $arRet[0]
-				__netcode_RemoveFromSafetyBuffer($hSocket, $arRet[$i])
-			Next
+;~ 		Case 'packet_confirmation'
+;~ 			Local $arRet = StringSplit($arData[2], ',', 1)
+;~ 			For $i = 1 To $arRet[0]
+;~ 				__netcode_RemoveFromSafetyBuffer($hSocket, $arRet[$i])
+;~ 			Next
 
 
 		Case 'packet_getresend'
 			$sPacket = __netcode_GetElementFromSafetyBuffer($hSocket, $arData[2])
 			If $sPacket Then
-				__netcode_AddPacketToQue($hSocket, BinaryToString($sPacket))
+				__netcode_AddPacketToQue($hSocket, BinaryToString($sPacket), $arData[2])
 			EndIf
 
 
@@ -2937,7 +3008,7 @@ Func __netcode_CreatePackage(Const $hSocket, $sEvent, $sData, $bLast = False)
 
 	Local $sPackage = ''
 	Local $nLen = 0
-	Local $sID = ''
+	Local $sPacketID = ''
 
 	; if we stored the last packet
 	If $bLast And $sLast <> '' Then
@@ -2949,7 +3020,7 @@ Func __netcode_CreatePackage(Const $hSocket, $sEvent, $sData, $bLast = False)
 
 		$sPackage = $sLast
 		$nLen = $nLastLen
-		$sID = $sLastID
+		$sPacketID = $sLastID
 
 
 		$sLast = ''
@@ -3004,7 +3075,7 @@ Func __netcode_CreatePackage(Const $hSocket, $sEvent, $sData, $bLast = False)
 	; add to the safety buffer
 ;~ 	if $sEvent <> 'netcode_internal' Then __netcode_AddToSafetyBuffer($hSocket, $sPackage, $nLen)
 
-	Return SetError(0, $sID, __Trace_FuncOut("__netcode_CreatePackage", $sPackage))
+	Return SetError(0, $sPacketID, __Trace_FuncOut("__netcode_CreatePackage", $sPackage))
 
 EndFunc   ;==>__netcode_CreatePackage
 
@@ -3545,6 +3616,8 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 		_storageS_Overwrite($hSocket, '_netcode_IncompletePacketBuffer', "") ; create empty incomplete packet buffer
 		_storageS_Overwrite($hSocket, '_netcode_PacketQuo', "") ; create empty packetquo buffer
 		_storageS_Overwrite($hSocket, '_netcode_PacketQuoSend', "") ; create empty packetquo buffer
+		_storageS_Overwrite($hSocket, '_netcode_PacketQuoIDQuo', "")
+		_storageS_Overwrite($hSocket, '_netcode_PacketQuoIDWait', "")
 		_storageS_Overwrite($hSocket, '_netcode_SocketExecutionOnHold', False) ; OnHold on False
 		_storageS_Overwrite($hSocket, '_netcode_PacketDynamicSize', 0) ; needs to be inherited from the parent or the server if client is from TCPConnect()
 		Local $arBuffer[0]
@@ -4514,8 +4587,15 @@ Func __netcode_TCPAccept($iMainsocket)
 		If $hSock Then __netcode_TCPCloseSocket($hSock)
 	Else
 		$nReturn = $hSock
+
+		; disable Nagle algorithm for testing https://docs.microsoft.com/en-us/windows/win32/api/winsock/nf-winsock-setsockopt
+		Local $tworkspace = DllStructCreate("BOOLEAN")
+		DllStructSetData($tworkspace, 1, False)
+		$arGen = DllCall($__net_hWs2_32, "int", "setsockopt", "uint", $hSock, "int", 6, "int", 1, "struct*", $tworkspace, "int", DllStructGetSize($tworkspace))
+
 	EndIf
 ;~ 	DllClose($hWs2)
+
 	If $nCode <> 0 And $nCode <> 1400 Then __Trace_Error($nCode, 0)
 	Return SetError($nCode, 0, __Trace_FuncOut("__netcode_TCPAccept", $nReturn))
 EndFunc   ;==>__netcode_TCPAccept
@@ -4583,6 +4663,10 @@ Func __netcode_TCPListen($sIP, $sPort, $nMaxPendingConnections, $nAdressFamily =
 		Return SetError($nError, 0, __Trace_FuncOut("__netcode_TCPListen"))
 	EndIf
 
+;~ 	Local $tworkspace = DllStructCreate("BOOLEAN")
+;~ 	DllStructSetData($tworkspace, 1, False)
+;~ 	$arGen = DllCall($__net_hWs2_32, "int", "setsockopt", "uint", $hSocket, "int", 6, "int", 1, "struct*", $tworkspace, "int", DllStructGetSize($tworkspace))
+
 	$arGen = DllCall($__net_hWs2_32, "int", "ioctlsocket", "int", $hSocket, "dword", 0x8004667e, "uint*", 1) ;WSA_NBTCP
 
 	Return __Trace_FuncOut("__netcode_TCPListen", $hSocket)
@@ -4616,6 +4700,11 @@ Func __netcode_TCPConnect($sIP, $sPort, $nAdressFamily = 2)
 		__Trace_Error($nError, 0)
 		Return SetError(__netcode_WSAGetLastError(), 0, __Trace_FuncOut("__netcode_TCPConnect", -1))
 	EndIf
+
+	; disable Nagle algorithm for testing https://docs.microsoft.com/en-us/windows/win32/api/winsock/nf-winsock-setsockopt
+	Local $tworkspace = DllStructCreate("BOOLEAN")
+	DllStructSetData($tworkspace, 1, False)
+	$arGen = DllCall($__net_hWs2_32, "int", "setsockopt", "uint", $hSocket, "int", 6, "int", 1, "struct*", $tworkspace, "int", DllStructGetSize($tworkspace))
 
 	; make socket non blocking
 	$arGen = DllCall($__net_hWs2_32, "int", "ioctlsocket", "int", $hSocket, "dword", 0x8004667E, "uint*", 1)
@@ -5525,7 +5614,7 @@ Func _storageS_Overwrite($ElementGroup, $Element0, $Element1)
 	; Illegal characters are all chars which wouldnt work to create a var, like a space or symbols like <, >, =, etc..
 
 	; we wont declare vars if $Element1 is False because _storageS_Read() always returns False and @error 1 on undeclared vars
-	If $Element1 = False And Not IsDeclared($sVarName) Then Return 1
+	If $Element1 == False And Not IsDeclared($sVarName) Then Return 1
 	If Not IsDeclared($sVarName) Then __storageS_AddGroupVar($ElementGroup, $Element0)
 
 	Return Assign($sVarName, $Element1, 2)

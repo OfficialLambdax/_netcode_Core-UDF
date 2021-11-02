@@ -1,3 +1,13 @@
+02.11.2021 (DD/MM/YYYY) 0.1.5.5
+	Changes
+		- The Packet Safety system got changed. Previously the Receiver always confirmed to the Sender that it received the send data.
+		Duo to this the Receiver could send as much packets to the Sender as the Sender send to the Receiver. The problematic was that this created much more traffic then was necessary. TCP is ment to be safe, if a packet is lost then the operating systems themself will request and resend them. I read over multiple articles that thats not always true and that why implemented the packet confirmation. However i changed the packet safety to a different format. Socket Select is now used to determine if the send packets are in fact received. If the case then the packets get removed from the Safety Buffer. The main functionality of the buffer however remains. The Receiver can still request lost and corrupted packets from the sender if the Operating System doesnt do it.
+		
+		- The Nagle algorithm for Sockets now gets disabled with each TCPAccept and TCPConnect socket for more Performance.
+		
+	Current Problematics
+		- The Problematic mentioned in 0.1.4 still persists and is further investigated because it is yet not very clear if the issue lies in the software or a hardware. Previous thoughts got me thinking that its the Nagle algorithm, but disabling it didnt improve the performance in the way i hoped. Tcp windows will be investigated next.
+
 25.10.2021 (DD/MM/YYYY) 0.1.5.4
 	Fixes
 		- both the __netcode_SocketSetSendBytesPerSecond() and __netcode_SocketSetRecvBytesPerSecond() function could rarely crash
@@ -88,7 +98,7 @@
 		- __netcode_SendPacketQuo() got overhauled. The function now makes use of 'select' instead of pushing dllcalls to 'send' until it gave a non 10035.
 	
 	Current Problematics
-		- When connecting to a computer thats not localhost but a pc in the same network, or in the internet or the same pc but over the external ip and when then sending data to said computer then _netcode never seems to get never faster then 12 MB/s no matter the settings. This issue might only exists in my network, because i also observed the same on other applications like a FTP and HTTP server that i setup for testing. It was never possible to exceed 12 Mb/s even so that any device in my local network should be capable to transmit more then 200 Mb/s. Further investigation of the problematic showed me that it has something todo with windows sending or receiving data delayed. There seems to be some kind of reason why data is sucessfully send at 00:00.000 (Hour:Minute.MSec) but only availble to be received around 00:00.100 (difference of 100 ms). My current guess is that windows doesnt send the data imidiatly but in intervalls and that i only have todo something code wise to tell windows to priotize said data, but i yet havent found out how and if thats really where the issue lays. 
+		- When connecting to a computer thats not localhost but a pc in the same network, or in the internet or the same pc but over the external ip and when then sending data to said computer then _netcode never seems to get never faster then a specific MB/s no matter the settings. This issue might only exists in my network, because i also observed the same on other applications like a FTP and HTTP server that i have setuped for testing. It was never possible to exceed 12 Mb/s even so that any device in my local network should be capable to transmit more then 200 Mb/s. Further investigation of the problematic showed me that it has something todo with windows sending or receiving data delayed. There seems to be some kind of reason why data is sucessfully send at 00:00.000 (Hour:Minute.MSec) but only availble to be received around 00:00.100 (difference of 100 ms). My current guess is that windows doesnt send the data imidiatly but in intervalls and that i only have todo something code wise to tell windows to priotize said data, but i yet havent found out how and if thats really where the issue lays. 
 	
 	Remarks
 		- Duo to the latest change _netcode got faster.
