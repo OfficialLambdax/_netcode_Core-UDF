@@ -125,7 +125,7 @@ Global $__net_nMaxPasswordLen = 30 ; max password len for the User Stage. If the
 
 ; enables the Tracer. Will slow down the UDF by about 5 %, but needs to be True if you want to use any of the options below.
 ; never toggle THIS option in your script or it might hard crash. All others can be toggled anytime.
-Global $__net_bTraceEnable = True
+Global $__net_bTraceEnable = False
 
 ; will log every call of a UDF function to the console in a ladder format. Will massively decrease the UDF speed because it floods the console.
 Global $__net_bTraceLogEnable = False
@@ -672,9 +672,7 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 				Return SetError($nError, 1, __Trace_FuncOut("_netcode_TCPSend", False))
 			EndIf
 
-			; recv manage execute
-;~ 			_netcode_RecvManageExecute($hSocket)
-;~ 			_netcode_Loop($hSocket)
+			; check id querry
 			__netcode_SendPacketQuoIDQuerry()
 		EndIf
 	Until $nError = 0
@@ -689,10 +687,6 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 
 	; add packet to que
 	__netcode_AddPacketToQue($hSocket, $sPackage, $sID)
-;~ 	if $sID == False Then
-;~ 		ClipPut($sPackage)
-;~ 		MsgBox(0, "", "1")
-;~ 	EndIf
 
 	__netcode_SocketSetSendPacketPerSecond($hSocket, 1)
 
@@ -2350,7 +2344,6 @@ Func __netcode_SendPacketQuo()
 
 	; for every socket in the filtered send quo
 	For $i = 0 To UBound($arTempSendQuo) - 1
-;~ 		ConsoleWrite(_storageS_Read($arTempSendQuo[$i], '_netcode_SafetyBufferSize') & @CRLF)
 
 		; send non-blocking
 		$sData = StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo'))
@@ -2378,11 +2371,6 @@ Func __netcode_SendPacketQuo()
 				__netcode_SocketSetSendBytesPerSecond($arTempSendQuo[$i], BinaryLen($sData))
 				ReDim $__net_arPacketSendQueIDWait[UBound($__net_arPacketSendQueIDWait) + 1]
 				$__net_arPacketSendQueIDWait[UBound($__net_arPacketSendQueIDWait) - 1] = $arTempSendQuo[$i]
-
-				if _storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo') = "" Then
-					ClipPut(BinaryToString($sData))
-					MsgBox(0, "", "")
-				EndIf
 
 				_storageS_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoIDWait', _storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo'))
 				_storageS_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo', "")
