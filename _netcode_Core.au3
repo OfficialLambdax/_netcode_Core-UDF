@@ -120,6 +120,12 @@ Global $__net_bParamSplitBinary = False
 ; default hash len.
 Global $__net_nMaxPasswordLen = 30 ; max password len for the User Stage. If the StringLen is > this then it will deny the login
 
+; disable to use the unstable socket select packet confirmation instead of the receivers confirmation packet.
+; will not improve performance, but reduces receivers load and its network usage. If False this Option will render certain packet safety options useless.
+; packet loss is a certain effect if _netcode_SetSocketOnHold() is used. Packet resend duo to packet loss or corruption will not work either until the packet
+; safety is overhauled. Both the server and the clients need this option to be the same, it is not synced.
+Global $__net_bPacketConfirmation = True
+
 ; ===================================================================================================================================================
 ; Tracer
 
@@ -173,7 +179,6 @@ Global $__net_hInt_hAESAlgorithmProvider = -1 ; AES provider handle
 Global $__net_hInt_hRSAAlgorithmProvider = -1 ; RSA provider handle
 Global $__net_hInt_hSHAAlgorithmProvider = -1 ; SHA provider handle
 Global $__net_nInt_CryptionIterations = 1000 ; i have to research the topic of Iterations
-;~ Global $__net_nInt_TemporarySRandomFix = Random(1000000, 999999999, 1)
 __netcode_SRandomTemporaryFix()
 
 ; ===================================================================================================================================================
@@ -184,7 +189,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.5"
+Global Const $__net_sNetcodeVersion = "0.1.5.6"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -239,7 +244,7 @@ Func _netcode_Loop(Const $hListenerSocket)
 	EndIf
 
 	; work through send quo
-	__netcode_SendPacketQuoIDQuerry()
+	if Not $__net_bPacketConfirmation Then __netcode_SendPacketQuoIDQuerry()
 	__netcode_SendPacketQuo()
 
 	Switch $nSocketIs
@@ -1759,7 +1764,7 @@ Func __netcode_ExecutePackets(Const $hSocket)
 	Local $arPackages = __netcode_SocketGetExecutionBufferValues($hSocket)
 	Local $nCurrentBufferIndex = @error
 	Local $nCurrentIndex = _storageS_Read($hSocket, '_netcode_ExecutionIndex')
-;~ 	Local $sID = ""
+	Local $sID = ""
 
 	For $i = $nCurrentIndex To UBound($arPackages) - 1
 		If $arPackages[$i][0] = '' Then ExitLoop
@@ -1767,7 +1772,7 @@ Func __netcode_ExecutePackets(Const $hSocket)
 		__netcode_ExecuteEvent($hSocket, $arPackages[$i][0], $arPackages[$i][1])
 
 ;~ 		_netcode_TCPSend($hSocket, 'netcode_internal', 'packet_confirmation|' & $i, False)
-;~ 		$sID &= $i & ','
+		$sID &= $i & ','
 
 		$arPackages[$i][0] = ''
 		$arPackages[$i][1] = ''
@@ -1777,10 +1782,12 @@ Func __netcode_ExecutePackets(Const $hSocket)
 
 	Next
 
-;~ 	if $sID <> "" Then
-;~ 		$sID = StringTrimRight($sID, 1) ; cutting the last ','
-;~ 		_netcode_TCPSend($hSocket, 'netcode_internal', 'packet_confirmation|' & $sID, False)
-;~ 	EndIf
+	if $__net_bPacketConfirmation Then
+		if $sID <> "" Then
+			$sID = StringTrimRight($sID, 1) ; cutting the last ','
+			_netcode_TCPSend($hSocket, 'netcode_internal', 'packet_confirmation|' & $sID, False)
+		EndIf
+	EndIf
 
 	__netcode_SocketSetExecutionBufferValues($hSocket, $nCurrentBufferIndex, $arPackages)
 	_storageS_Overwrite($hSocket, '_netcode_ExecutionIndex', $nCurrentIndex)
@@ -2362,18 +2369,24 @@ Func __netcode_SendPacketQuo()
 
 			Case 10035
 				__netcode_SocketSetSendBytesPerSecond($arTempSendQuo[$i], BinaryLen($sData))
-				Local $arIDs = StringSplit(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo'), ',', 1)
-				For $iS = 1 To $arIDs[0]
-					__netcode_RemoveFromSafetyBuffer($arTempSendQuo[$i], $arIDs[$iS])
-				Next
+
+				if Not $__net_bPacketConfirmation Then
+					Local $arIDs = StringSplit(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo'), ',', 1)
+					For $iS = 1 To $arIDs[0]
+						__netcode_RemoveFromSafetyBuffer($arTempSendQuo[$i], $arIDs[$iS])
+					Next
+				EndIf
 
 			Case Else
 				__netcode_SocketSetSendBytesPerSecond($arTempSendQuo[$i], BinaryLen($sData))
-				ReDim $__net_arPacketSendQueIDWait[UBound($__net_arPacketSendQueIDWait) + 1]
-				$__net_arPacketSendQueIDWait[UBound($__net_arPacketSendQueIDWait) - 1] = $arTempSendQuo[$i]
 
-				_storageS_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoIDWait', _storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo'))
-				_storageS_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo', "")
+				if Not $__net_bPacketConfirmation Then
+					ReDim $__net_arPacketSendQueIDWait[UBound($__net_arPacketSendQueIDWait) + 1]
+					$__net_arPacketSendQueIDWait[UBound($__net_arPacketSendQueIDWait) - 1] = $arTempSendQuo[$i]
+
+					_storageS_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoIDWait', _storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo'))
+					_storageS_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo', "")
+				EndIf
 
 		EndSwitch
 
@@ -2774,11 +2787,13 @@ Func __netcode_EventInternal(Const $hSocket, $sData)
 	Local $sPacket = ""
 
 	Switch $arData[1]
-;~ 		Case 'packet_confirmation'
-;~ 			Local $arRet = StringSplit($arData[2], ',', 1)
-;~ 			For $i = 1 To $arRet[0]
-;~ 				__netcode_RemoveFromSafetyBuffer($hSocket, $arRet[$i])
-;~ 			Next
+		Case 'packet_confirmation'
+			if $__net_bPacketConfirmation Then
+				Local $arRet = StringSplit($arData[2], ',', 1)
+				For $i = 1 To $arRet[0]
+					__netcode_RemoveFromSafetyBuffer($hSocket, $arRet[$i])
+				Next
+			EndIf
 
 
 		Case 'packet_getresend'

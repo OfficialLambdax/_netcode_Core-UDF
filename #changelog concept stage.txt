@@ -1,3 +1,16 @@
+02.11.2021 (DD/MM/YYYY) 0.1.5.6
+	
+	Changes
+		- The latest change in 0.1.5.5 with the packet safety system got optionalized with $__net_bPacketConfirmation and is at default set to True. This means that _netcode will use the previous system where the receiver sends a packet confirmation packet to the sender. This was done duo to a couple issues with the packet safety systems. It is required to overhaul the packet safety in a way that isnt done quickly to fully switch to the new non packet confirmation packet system.
+
+	Bugs
+		- In very rare cases _netcode seems to become stuck. The issues is so rare that it yet wasnt possible to determine why that is the case. Maybe it doesnt even have anything todo with _netcode but with the example where i noticed it.
+		
+		- The Packet overflow protection is currently not fully working duo to the latest change in 0.1.5.5. Packets will be rejected if the socket is set OnHold, because the sender can currently not get a notice about that. This bug will only appear if $__net_bPacketConfirmation is set to False.
+		
+		- Adding to the last bug _netcode_SetSocketOnHold() is not working at all if used individually because _netcode internally resets the OnHold status if a requirement is meet. To those not knowing what this function even is. With it it is possible to stop _netcode from executing packets from the given socket. This can be used in various ways for example to pause or limit a socket or multiple to either priotize another or just to pause a server. But this option is also used internally by _netcode if a packet loss or packet corruption got detected so that the packets get executed in order. For that _netcode stops the execution of the socket (aka setting it OnHold) until the lost or corrupted packet got resend by the sender. The OnHold status is then reverted. As of now _netcode internally uses the same functions as the user can do individually. This is why it fails if used individually, because _netcode thinks it has set the Socket OnHold by its own and resets it when everything is alright with the execution buffer. To fix the issue, i need to split the internal OnHold function from the individually usable functions. This is easy but i want to improve this feature so that certain things can be set OnHold for a socket or multiple.
+
+
 02.11.2021 (DD/MM/YYYY) 0.1.5.5
 	Changes
 		- The Packet Safety system got changed. Previously the Receiver always confirmed to the Sender that it received the send data.
