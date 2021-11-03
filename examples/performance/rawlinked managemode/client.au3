@@ -24,7 +24,7 @@ Until _netcode_CheckLink($hClientSocket, "hiwh")
 Local $hLinkSocket = _netcode_CheckLink($hClientSocket, "hiwh")
 
 Local $sSend = ''
-For $i = 1 To 1048576 * 0.35 ; 1.25 seems to work very smooth
+For $i = 1 To 1048576 * 0.1
 	$sSend &= '1'
 Next
 ConsoleWrite("Start sending" & @CRLF)
