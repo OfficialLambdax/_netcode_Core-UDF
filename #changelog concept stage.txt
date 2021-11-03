@@ -1,3 +1,12 @@
+03.11.2021 (DD/MM/YYYY) 0.1.5.7
+	
+	Fixes
+		- A couple bugs
+		
+	Changes
+		- Recoded the BytesPerSecond functions to be more efficient
+	
+	
 02.11.2021 (DD/MM/YYYY) 0.1.5.6
 	
 	Changes
@@ -12,6 +21,10 @@
 
 
 02.11.2021 (DD/MM/YYYY) 0.1.5.5
+
+	Fixes
+		- Fixed a non problematic issue with the _storageS_Overwrite() function that ignores variable assigning if its initialized with the value of Bool False. The function also ignored the variable creation if the value was 0 duo to "if $var = False" being True.
+
 	Changes
 		- The Packet Safety system got changed. Previously the Receiver always confirmed to the Sender that it received the send data.
 		Duo to this the Receiver could send as much packets to the Sender as the Sender send to the Receiver. The problematic was that this created much more traffic then was necessary. TCP is ment to be safe, if a packet is lost then the operating systems themself will request and resend them. I read over multiple articles that thats not always true and that why implemented the packet confirmation. However i changed the packet safety to a different format. Socket Select is now used to determine if the send packets are in fact received. If the case then the packets get removed from the Safety Buffer. The main functionality of the buffer however remains. The Receiver can still request lost and corrupted packets from the sender if the Operating System doesnt do it.

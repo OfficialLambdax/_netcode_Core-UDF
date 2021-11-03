@@ -189,7 +189,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.6"
+Global Const $__net_sNetcodeVersion = "0.1.5.7"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -678,7 +678,11 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 			EndIf
 
 			; check id querry
-			__netcode_SendPacketQuoIDQuerry()
+			if $__net_bPacketConfirmation Then
+				_netcode_RecvManageExecute($hSocket)
+			Else
+				__netcode_SendPacketQuoIDQuerry()
+			EndIf
 		EndIf
 	Until $nError = 0
 
@@ -2322,7 +2326,7 @@ Func __netcode_AddPacketToQue(Const $hSocket, $sPackage, $nID = False)
 	_storageS_Append($hSocket, '_netcode_PacketQuo', $sPackage)
 	If $nID == False Then ; if Not $nID == False Then <- does not work If $nID <> False would also be True if $nID = 0. So it had to be done like here
 	Else
-		_storageS_Append($hSocket, '_netcode_PacketQuoIDQuo', $nID & ',')
+		if Not $__net_bPacketConfirmation Then _storageS_Append($hSocket, '_netcode_PacketQuoIDQuo', $nID & ',')
 	EndIf
 __Trace_FuncOut("__netcode_AddPacketToQue")
 EndFunc   ;==>__netcode_AddPacketToQue
@@ -2814,7 +2818,8 @@ EndFunc   ;==>__netcode_EventInternal
 
 Func __netcode_ExecuteEvent(Const $hSocket, $sEvent, $sData = '')
 	__Trace_FuncIn("__netcode_ExecuteEvent", $hSocket, $sEvent, "$sData")
-	; parent socket can never Execute. But we wont check if the given socket is a parent here to spare code because this func is most probably getting called very often
+
+	; events are saved in Binary to support every possible symbol
 	If Not IsBinary($sEvent) Then $sEvent = StringToBinary($sEvent)
 
 	if $sEvent = "208519967649002627" Then
@@ -2833,7 +2838,7 @@ Func __netcode_ExecuteEvent(Const $hSocket, $sEvent, $sData = '')
 
 	EndIf
 
-	; currently not working
+	; currently not working duo to the $sCallback vartype is required to be a Expression not a String
 ;~ 	if Not IsFunc($sCallback) Then
 ;~ 		__Trace_Error(2, 0, 'Event Callback: "' & $sCallback & '" func for event "' & BinaryToString($sEvent) & '" doesnt exists')
 ;~ 	EndIf
@@ -2841,7 +2846,7 @@ Func __netcode_ExecuteEvent(Const $hSocket, $sEvent, $sData = '')
 ;~ 	ConsoleWrite(@TAB & @TAB & BinaryToString($sEvent) & @CRLF)
 
 	; convert params to array, and also unmerge them if _netcode_sParams() is used, for Call()
-	Local $arParams = __netcode_r_Params2ar_Params($hSocket, $sData)
+	Local $arParams = __netcode_sParams_2_arParams($hSocket, $sData)
 
 	__Trace_FuncIn($sCallback)
 	Call($sCallback, $arParams)
@@ -2870,8 +2875,9 @@ Func __netcode_ExecuteEvent(Const $hSocket, $sEvent, $sData = '')
 	__Trace_FuncOut("__netcode_ExecuteEvent")
 EndFunc   ;==>__netcode_ExecuteEvent
 
-Func __netcode_r_Params2ar_Params($hSocket, $r_params)
-	__Trace_FuncIn("__netcode_r_Params2ar_Params", $hSocket, "$r_params")
+; creates an array for Call() with the params and also unserializes data serialized with _netcode_sParams()
+Func __netcode_sParams_2_arParams($hSocket, $r_params)
+	__Trace_FuncIn("__netcode_sParams_2_arParams", $hSocket, "$r_params")
 	Local $nIndicatorLen = StringLen($__net_sParamIndicatorString)
 	Local $aTmp[2]
 	Local $arParams[0]
@@ -2881,26 +2887,27 @@ Func __netcode_r_Params2ar_Params($hSocket, $r_params)
 	$aTmp[1] = $hSocket
 
 	If $r_params == '' Then ; if no params where set
-		Return __Trace_FuncOut("__netcode_r_Params2ar_Params", $aTmp)
+		Return __Trace_FuncOut("__netcode_sParams_2_arParams", $aTmp)
 
 	ElseIf StringLeft($r_params, $nIndicatorLen) <> $__net_sParamIndicatorString Then ; if params set but not merged with _netcode_sParams
 		ReDim $aTmp[3]
+
 		$aTmp[2] = __netcode_CheckParamAndUnserialize($r_params)
-		Return __Trace_FuncOut("__netcode_r_Params2ar_Params", $aTmp)
+		Return __Trace_FuncOut("__netcode_sParams_2_arParams", $aTmp)
 
 	Else ; if merged with _netcode_sParams
 		$arParams = StringSplit(StringTrimLeft($r_params, $nIndicatorLen), $__net_sParamSplitSeperator, 1)
 		ReDim $aTmp[2 + $arParams[0]]
 
 		For $i = 1 To $arParams[0]
-			If $__net_bParamSplitBinary Then $arParams[$i] = $arParams[$i]
+;~ 			If $__net_bParamSplitBinary Then $arParams[$i] = $arParams[$i] ; param binarization will be done by _netcode internally once packet reassembling in a packet corruption case is implemented.
 			$aTmp[1 + $i] = __netcode_CheckParamAndUnserialize($arParams[$i])
 		Next
 
-		Return __Trace_FuncOut("__netcode_r_Params2ar_Params", $aTmp)
+		Return __Trace_FuncOut("__netcode_sParams_2_arParams", $aTmp)
 	EndIf
 
-	__Trace_FuncOut("__netcode_r_Params2ar_Params")
+	__Trace_FuncOut("__netcode_sParams_2_arParams")
 EndFunc   ;==>__netcode_r_Params2ar_Params
 
 ; we only serialize arrays. Do not parse 2D array with the size [n][1] it will think its a 1D array (try redimming with Execute()).
@@ -2921,6 +2928,8 @@ Func __netcode_CheckParamAndSerialize($sParam, $bNoIndication = False)
 	__Trace_FuncOut("__netcode_CheckParamAndSerialize")
 EndFunc   ;==>__netcode_CheckParamAndSerialize
 
+; marked for recoding
+; add support for 3D arrays and add data var type storing to recreate the arrays with the exact same data var types in the unserializer.
 Func __netcode_SerializeArray($sParam)
 	__Trace_FuncIn("__netcode_SerializeArray", "$sParam")
 	Local $nY = UBound($sParam)
@@ -2996,12 +3005,14 @@ Func __netcode_UnserializeArray($sParam)
 	Return __Trace_FuncOut("__netcode_UnserializeArray", $arParam)
 EndFunc   ;==>__netcode_UnserializeArray
 
-; note - do not Return a binarized packet, since autoit seems to be much faster working with Strings
+; note - do not Return a binarized packet, since autoit seems to be much faster working with Strings.
 ; i actually got 3 mb/s more by changing from Binary to String processing.
 ; marked for recoding. Store the last created packet if it exceeds the packet buffer in _storageS instead of in a Static var.
 ; do not add the packet to the safety buffer here... have to see how i do it
 ; this func takes about 15ms on a 1.25mb packet. I think it is the content assembly or the
-; binary/string conversion of the content when encryption is toggled on
+; binary/string conversion of the content when encryption is toggled on, because otherwise this function is done in 2 ms with the same data size.
+; data encryption just takes a small amount of ms, so it has to be something else. As of now i can only think of the BinaryToString() conversion once the Binary exists the
+; aes encryption.
 Func __netcode_CreatePackage(Const $hSocket, $sEvent, $sData, $bLast = False)
 	__Trace_FuncIn("__netcode_CreatePackage", $hSocket, $sEvent, "$sData", $bLast)
 	Local Static $sLast = ''
@@ -3625,16 +3636,18 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 		_storageS_Overwrite($hSocket, '_netcode_PacketDynamicSize', 0) ; needs to be inherited from the parent or the server if client is from TCPConnect()
 		Local $arBuffer[0]
 		_storageS_Overwrite($hSocket, '_netcode_EventStorage', $arBuffer) ; create event buffer with 0 elements
-		Local $arBuffer[1000]
-		For $i = 0 To 999
-			$arBuffer[$i] = 0
-		Next
+;~ 		Local $arBuffer[1000] ; for BytesPerSecondArray
+;~ 		For $i = 0 To 999
+;~ 			$arBuffer[$i] = 0
+;~ 		Next
 		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecond', 0)
-		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondArray', $arBuffer)
+;~ 		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondArray', $arBuffer)
 		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondSecond', @SEC)
+		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondCount', 0)
 		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecond', 0)
-		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondArray', $arBuffer)
+;~ 		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondArray', $arBuffer)
 		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondSecond', @SEC)
+		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondCount', 0)
 		_storageS_Overwrite($hSocket, '_netcode_SendPacketPerSecond', 0)
 		_storageS_Overwrite($hSocket, '_netcode_SendPacketPerSecondBuffer', 0)
 		_storageS_Overwrite($hSocket, '_netcode_SendPacketPerSecondSecond', @SEC)
@@ -3810,19 +3823,6 @@ Func __netcode_CheckSocket(Const $hSocket)
 	Return 0
 EndFunc   ;==>__netcode_CheckSocket
 
-#cs ~ unused
-; will just delete the last item if its empty and -= 1 the [0]. Only works for 1D arrays
-Func __netcode_FixArray($array)
-	Local $nArSize = UBound($array)
-	if $array[$nArSize - 1] <> '' Then Return
-
-	$array[0] -= 1
-	ReDim $array[$nArSize]
-
-	Return $array
-EndFunc
-#ce ~ unused
-
 Func __netcode_Installation()
 	Local $rMSGBOX = MsgBox(64 + 4, "Installation", "Thanks for downloading the _netcode UDF. There is one Step left to setup _netcode." & @CRLF & @CRLF _
 										& "That is to set the Default Seed within the Global var $__net_nNetcodeStringDefaultSeed"  & @CRLF & @CRLF _
@@ -3908,6 +3908,8 @@ Func __netcode_SeedingClientStrings(Const $hSocket, $nSeed)
 	__Trace_FuncOut("__netcode_SeedingClientStrings")
 EndFunc   ;==>__netcode_SeedingClientStrings
 
+; marked for recoding
+; needs to generate strings that cant be reverted to the seed. Use hash algorhytms.
 Func __netcode_SeedToString($nSeed, $nStringLen, $sSalt = "")
 	__Trace_FuncIn("__netcode_SeedToString", $nSeed, $nStringLen, $sSalt)
 	Local Static $arChars ; 61 chars
@@ -4005,6 +4007,39 @@ Func __netcode_SocketSetSendBytesPerSecond(Const $hSocket, $nBytes)
 	if $nBytes = 0 Then Return __Trace_FuncOut("__netcode_SocketSetSendBytesPerSecond")
 
 	; get buffer and the second it belongs too
+	Local $nBufferSize = _storageS_Read($hSocket, '_netcode_SendBytesPerSecondCount')
+;~ 	if Not IsArray($arBuffer) Then Return __Trace_FuncOut("__netcode_SocketSetSendBytesPerSecond") ; socket gone
+	Local $nCalculatedSecond = _storageS_Read($hSocket, '_netcode_SendBytesPerSecondSecond')
+
+	; if its the next second then
+	if $nCalculatedSecond <> @SEC Then
+
+		; calculate how much bytes per second where send
+		Local $nBytesPerSecond = $nBufferSize
+		$nBufferSize = 0
+		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondCount', 0)
+
+		; and write said information to the storage
+		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecond', $nBytesPerSecond)
+		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondSecond', @SEC)
+	EndIf
+
+	; add the current send bytes to the array index of the ms it was send
+	$nBufferSize += $nBytes
+
+	; update buffer
+	_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondCount', $nBufferSize)
+	__Trace_FuncOut("__netcode_SocketSetSendBytesPerSecond")
+EndFunc
+
+#cs
+Func __netcode_SocketSetSendBytesPerSecond_Backup(Const $hSocket, $nBytes)
+	__Trace_FuncIn("__netcode_SocketSetSendBytesPerSecond")
+
+	; return if zero bytes because nothing needs to be added
+	if $nBytes = 0 Then Return __Trace_FuncOut("__netcode_SocketSetSendBytesPerSecond")
+
+	; get buffer and the second it belongs too
 	Local $arBuffer = _storageS_Read($hSocket, '_netcode_SendBytesPerSecondArray')
 	if Not IsArray($arBuffer) Then Return __Trace_FuncOut("__netcode_SocketSetSendBytesPerSecond") ; socket gone
 	Local $nCalculatedSecond = _storageS_Read($hSocket, '_netcode_SendBytesPerSecondSecond')
@@ -4031,6 +4066,7 @@ Func __netcode_SocketSetSendBytesPerSecond(Const $hSocket, $nBytes)
 	_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondArray', $arBuffer)
 	__Trace_FuncOut("__netcode_SocketSetSendBytesPerSecond")
 EndFunc
+#ce
 
 ; currently only works for client sockets
 Func __netcode_SocketGetSendBytesPerSecond(Const $hSocket, $nMode = 0)
@@ -4040,6 +4076,8 @@ Func __netcode_SocketGetSendBytesPerSecond(Const $hSocket, $nMode = 0)
 		Return 0
 	Else
 		; if the info is old as- or older then 2 seconds then return 0
+;~ 		Local $nCalculatedSecond = _storageS_Read($hSocket, '_netcode_SendBytesPerSecondSecond')
+
 		if @SEC - _storageS_Read($hSocket, '_netcode_SendBytesPerSecondSecond') >= 2 Then Return 0
 	EndIf
 
@@ -4060,6 +4098,39 @@ Func __netcode_SocketGetSendBytesPerSecond(Const $hSocket, $nMode = 0)
 EndFunc
 
 Func __netcode_SocketSetRecvBytesPerSecond(Const $hSocket, $nBytes)
+	__Trace_FuncIn("__netcode_SocketSetRecvBytesPerSecond")
+
+	; return if zero bytes because nothing needs to be added
+	if $nBytes = 0 Then Return __Trace_FuncOut("__netcode_SocketSetRecvBytesPerSecond")
+
+	; get buffer and the second it belongs too
+	Local $nBufferSize = _storageS_Read($hSocket, '_netcode_RecvBytesPerSecondCount')
+;~ 	if Not IsArray($arBuffer) Then Return __Trace_FuncOut("__netcode_SocketSetRecvBytesPerSecond") ; socket gone
+	Local $nCalculatedSecond = _storageS_Read($hSocket, '_netcode_RecvBytesPerSecondSecond')
+
+	; if its the next second then
+	if $nCalculatedSecond <> @SEC Then
+
+		; calculate how much bytes per second where received and also clean the buffer
+		Local $nBytesPerSecond = $nBufferSize
+		$nBufferSize = 0
+		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondCount', 0)
+
+		; and write said information to the storage
+		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecond', $nBytesPerSecond)
+		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondSecond', @SEC)
+	EndIf
+
+	; add the current received bytes to the array index of the ms it was received
+	$nBufferSize += $nBytes
+
+	; update buffer
+	_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondCount', $nBufferSize)
+	__Trace_FuncOut("__netcode_SocketSetRecvBytesPerSecond")
+EndFunc
+
+#cs
+Func __netcode_SocketSetRecvBytesPerSecond_Backup(Const $hSocket, $nBytes)
 	__Trace_FuncIn("__netcode_SocketSetRecvBytesPerSecond")
 
 	; return if zero bytes because nothing needs to be added
@@ -4092,6 +4163,7 @@ Func __netcode_SocketSetRecvBytesPerSecond(Const $hSocket, $nBytes)
 	_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondArray', $arBuffer)
 	__Trace_FuncOut("__netcode_SocketSetRecvBytesPerSecond")
 EndFunc
+#ce
 
 Func __netcode_SocketGetRecvBytesPerSecond(Const $hSocket, $nMode = 0)
 	Local $nBytesPerSecond = _storageS_Read($hSocket, '_netcode_RecvBytesPerSecond')
@@ -4136,6 +4208,7 @@ Func __netcode_SocketSetSendPacketPerSecond(Const $hSocket, $nCount)
 EndFunc
 
 Func __netcode_SocketGetSendPacketPerSecond(Const $hSocket)
+	; this is dump and will fail if the current sec is < the one the bps got saved for.
 	if @SEC - _storageS_Read($hSocket, '_netcode_SendPacketPerSecondSecond') >=2 Then Return 0
 
 	Return _storageS_Read($hSocket, '_netcode_SendPacketPerSecond')
@@ -4164,7 +4237,7 @@ Func __netcode_SocketGetRecvPacketPerSecond(Const $hSocket)
 EndFunc
 
 ; this functions only sets the var type, it doesnt convert the data
-; so a String wont be set with StringToBinary() it will just be set with Binary()
+; so a String var, ment to be set to Binary, wont be set with StringToBinary() it will just be set with Binary()
 Func __netcode_SetVarType($vData, $sVarType)
 	__Trace_FuncIn("__netcode_SetVarType", "$vData", $sVarType)
 
@@ -4225,32 +4298,33 @@ Func __netcode_SocketSelect($arClients, $bRead = True)
 	Local $tFD_SET, $tTIMEVAL
 	Local $arRet[0]
 
-	if @AutoItX64 Then
-;~ 		$tFD_SET = DllStructCreate("uint64 fd_count;uint64 fd_array[" & $nArSize & "]")
+	; creating fd_set and timeval structs
+	if @AutoItX64 Then ; structs need to be created with different var types for x32 and x64.
 		$tFD_SET = DllStructCreate("int64 fd_count;int64 fd_array[" & $nArSize & "]")
-;~ 		$tTIMEVAL = DllStructCreate("long64 tv_sec;long64 tv_usec")
 		$tTIMEVAL = DllStructCreate("int64;int64")
 	Else
-;~ 		$tFD_SET = DllStructCreate("uint fd_count;uint fd_array[" & $nArSize & "]")
 		$tFD_SET = DllStructCreate("int fd_count;int fd_array[" & $nArSize & "]")
 		$tTIMEVAL = DllStructCreate("int;int")
 	EndIf
 
+	; setting fd_count to the amount of socket to be checked and timevals to 0 sec and ms
 	DllStructSetData($tFD_SET, "fd_count", $nArSize)
-;~     DllStructSetData($tTIMEVAL, "tv_sec", 1)
-    DllStructSetData($tTIMEVAL, 1, 0)
-;~     DllStructSetData($tTIMEVAL, "tv_usec", 0)
-    DllStructSetData($tTIMEVAL, 2, 0)
+    DllStructSetData($tTIMEVAL, 1, 0) ; tv_sec
+    DllStructSetData($tTIMEVAL, 2, 0) ; tv_usec
 
+	; filling the fd_set dtruct with the client sockets
 	For $i = 0 To $nArSize - 1
 		DllStructSetData($tFD_SET, "fd_array", $arClients[$i], $i + 1)
 	Next
 
+	; if we want to filter for the sockets that have something in the receive buffer or if we want to filter for the sockets that can send something
 	if $bRead Then
 		$arRet = DllCall($__net_hWs2_32, 'int', 'select', 'int', 0, 'ptr', DllStructGetPtr($tFD_SET), 'ptr', 0, 'ptr', 0, 'ptr', DllStructGetPtr($tTIMEVAL))
 	Else
 		$arRet = DllCall($__net_hWs2_32, 'int', 'select', 'int', 0, 'ptr', 0, 'ptr', DllStructGetPtr($tFD_SET), 'ptr', 0, 'ptr', DllStructGetPtr($tTIMEVAL))
 	EndIf
+
+	; if the call failed. A fail can be -1 and 0. If its -1 then there also is an error retrievable with WSAGetLastError.
 	if $arRet[0] = -1 Then
 		__Trace_Error(__netcode_WSAGetLastError(), 0, "Select error")
 		Return __Trace_FuncOut("__netcode_SocketSelect")
@@ -4258,12 +4332,15 @@ Func __netcode_SocketSelect($arClients, $bRead = True)
 		Return __Trace_FuncOut("__netcode_SocketSelect")
 	EndIf
 
+	; redim the array with the amount of filtered sockets
 	ReDim $arRet[DllStructGetData($tFD_SET, "fd_count")]
 
+	; get the filtered sockets out of the struct
 	For $i = 1 To UBound($arRet)
 		$arRet[$i - 1] = DllStructGetData($tFD_SET, "fd_array", $i)
 	Next
 
+	; return the filtered sockets
 	Return __Trace_FuncOut("__netcode_SocketSelect", $arRet)
 EndFunc
 
@@ -4299,7 +4376,6 @@ Func __netcode_TCPSend($hSocket, $sData, $bReturnWhenDone = True) ; TCPSend
 		$nError = __netcode_WSAGetLastError()
 
 		if $bReturnWhenDone And $nError = 10035 Then ContinueLoop
-;~ 	Until $nError <> 10035 And $nError <> 1400
 	Until $nError <> 1400
 
 ;~ 	if $nError Then MsgBox(0, @ScriptName, $nError)
@@ -4347,16 +4423,13 @@ Func __netcode_TCPRecv(Const $hSocket)
 
 	; "If the connection has been gracefully closed, the return value is zero."
 	if $arRet[0] = 0 Then
-;~ 		$nError = __netcode_WSAGetLastError()
 		__Trace_Error(1, 0, "Socket Error")
 		Return SetError(1, 0, __Trace_FuncOut("__netcode_TCPRecv", False))
 	EndIf
 
 	if $arRet[0] = -1 Then
 		$nError = __netcode_WSAGetLastError()
-;~ 		if $nError > 0 Then
 		if $nError > 10000 Then ; "Error codes below 10000 are standard Win32 error codes"
-;~ 			if $nError <> 10035 And $nError <> 1400 And $nError <> 5 Then
 			if $nError <> 10035 Then
 				__Trace_Error($nError, 2, "Socket Error")
 				Return SetError($nError, 2, __Trace_FuncOut("__netcode_TCPRecv", False))
