@@ -1,3 +1,29 @@
+12.11.2021 (DD/MM/YYYY) 0.1.5.8
+	
+	Fixes
+		- __netcode_AddPacketToQue() sometimes tried to add a socket with id "False" to the Send quo ($__net_arPacketSendQue). Duo to this 'select' stopped working and threw 10038 errors. The issue is patched but requires further investigation.
+	
+	
+	Changes
+		- The _netcode_SetEvent() function now accepts non callback events. If the $sCallback params is set with "" then the event becomes a non callback event. If Data is send to it then it gets saved to the event instead of given to a func with a Call(). Said data can then be retrieved with _netcode_GetEventData(). Non callback events only have a single data buffer, so new data will always overwrite the last if the last is not retrieved when the new arrives. _netcode_GetEventData() always returns an CallArgArray. So _netcode_sParams() can still be used.
+		Once _netcode_GetEventData() is called it also will empty the buffer.
+	
+		- Added _netcode_UseNonCallbackEvent(). if called the func will send the specified data to the receiver and will only return once the receiver reported something back to this event or if the timeout run out. Similiar to the _netcode_SetEvent() this func will return an array.
+		@error = 1 indicates a disconnect
+		@error = 2 indicates a timeout
+		
+	Remarks
+		Non Callback events should not be used to send multiple packets at once, but used for a single packet. So lets say your client wants to ask the Server something then the servers answer shouldnt exceed a single packet.
+		
+		example:
+		$arAnswer = _netcode_UseNonCallbackEvent(socket, eventname the answer goes to, eventname the request goes to, data you want to add to the request, timeout in ms)
+		
+		The "eventname the answer goes to" has to be a Non Callback Event.
+		The function when called will request an answer from the other side and when it arrives then return it to $arAnswer.
+		
+		So this addition can be used similiar to how you use your local functions but with the exeption that it can fail because of either a disconnect or a timeout.
+	
+
 03.11.2021 (DD/MM/YYYY) 0.1.5.7
 	
 	Fixes

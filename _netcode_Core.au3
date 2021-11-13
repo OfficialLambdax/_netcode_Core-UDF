@@ -189,7 +189,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.7"
+Global Const $__net_sNetcodeVersion = "0.1.5.8"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -1028,6 +1028,34 @@ Func _netcode_GetDynamicPacketContentSize(Const $hSocket)
 EndFunc   ;==>_netcode_GetDynamicPacketContentSize
 #ce
 
+
+Func _netcode_UseNonCallbackEvent(Const $hSocket, $sMyEvent, $sSendEvent, $sData = "", $nTimeout = 10000) ; 10 sec default timeout
+	_netcode_TCPSend($hSocket, $sSendEvent, $sData)
+	Local $arEventData = ""
+	Local $hTimer = TimerInit()
+
+	Do
+		if TimerDiff($hTimer) > $nTimeout Then Return SetError(2, 0, "") ; timeouted
+
+		if __netcode_CheckSocket($hSocket) = 0 Then
+			Return SetError(1, 0, "") ; disconnected
+		Else
+			_netcode_Loop($hSocket)
+		EndIf
+
+		$arEventData = _netcode_GetEventData($hSocket, $sMyEvent)
+	Until IsArray($arEventData)
+
+	Return $arEventData
+EndFunc
+
+Func _netcode_GetEventData(Const $hSocket, $sName)
+	Local $sData = _storageS_Read($hSocket, '_netcode_Event' & StringToBinary($sName) & '_Data')
+	_storageS_Overwrite($hSocket, '_netcode_Event' & StringToBinary($sName) & '_Data', "")
+
+	Return $sData
+EndFunc
+
 ; if you set a event for a parent then all NEW client sockets will get this event atttached.
 ; if you set a event for a client then only this client will have that event.
 ; if you use it with a parent then be aware that this func does not update the events on the existing client sockets. See _netcode_SetEventOnAllWithParent() for that
@@ -1073,6 +1101,7 @@ Func _netcode_SetEvent(Const $hSocket, $sName, $sCallback, $bSet = True)
 
 		; create storage var for faster event checking and store the set callback to it
 		_storageS_Overwrite($hSocket, '_netcode_Event' & $sName, $sCallback)
+		if $sCallback = "" Then _storageS_Overwrite($hSocket, '_netcode_Event' & $sName & '_Data', "")
 		__netcode_SocketSetEvents($hSocket, $arEvents)
 
 		Return __Trace_FuncOut("_netcode_SetEvent", True)
@@ -2308,6 +2337,12 @@ EndFunc   ;==>__netcode_PreRecvPackages
 
 Func __netcode_AddPacketToQue(Const $hSocket, $sPackage, $nID = False)
 	__Trace_FuncIn("__netcode_AddPacketToQue", $hSocket, "$sPackage", $nID)
+
+	if $hSocket == False Then ; temp patch, requires investigation
+;~ 		__Trace_Error(1, 0, "Socket is FALSE")
+		Return __Trace_FuncOut("__netcode_AddPacketToQue")
+	EndIf
+
 	Local $nArSize = UBound($__net_arPacketSendQue)
 
 	Local $nIndex = -1
@@ -2328,7 +2363,8 @@ Func __netcode_AddPacketToQue(Const $hSocket, $sPackage, $nID = False)
 	Else
 		if Not $__net_bPacketConfirmation Then _storageS_Append($hSocket, '_netcode_PacketQuoIDQuo', $nID & ',')
 	EndIf
-__Trace_FuncOut("__netcode_AddPacketToQue")
+
+	__Trace_FuncOut("__netcode_AddPacketToQue")
 EndFunc   ;==>__netcode_AddPacketToQue
 
 ;~ _storageS_Overwrite($hSocket, '_netcode_PacketQuoIDQuo', "")
@@ -2829,14 +2865,24 @@ Func __netcode_ExecuteEvent(Const $hSocket, $sEvent, $sData = '')
 
 	; check if event is set. if not check if the event is a default event.
 	Local $sCallback = _storageS_Read($hSocket, '_netcode_Event' & $sEvent)
-	If Not $sCallback Then
+	If $sCallback == False Then
 		$sCallback = _storageS_Read('Internal', '_netcode_DefaultEvent' & $sEvent)
-		If Not $sCallback Then
+		If $sCallback == False Then
 			__Trace_Error(1, 0, 'This Event is unknown: "' & BinaryToString($sEvent) & '"', "", $hSocket, $sEvent)
 			Return SetError(1, 0, __Trace_FuncOut("__netcode_ExecuteEvent", False)) ; this event is neither set / preset nor a default event. the event is completly unknown
 		EndIf
 
 	EndIf
+
+	; if its a non callback event then store the data to the Event
+	if $sCallback = "" Then
+		if _storageS_Read($hSocket, '_netcode_Event' & $sEvent & '_Data') <> "" Then
+			__Trace_Error(6, 0, "Non Callback Event misused. Event data gets overwritten.")
+		EndIf
+		_storageS_Overwrite($hSocket, '_netcode_Event' & $sEvent & '_Data', __netcode_sParams_2_arParams($hSocket, $sData))
+		Return __Trace_FuncOut("__netcode_ExecuteEvent")
+	EndIf
+
 
 	; currently not working duo to the $sCallback vartype is required to be a Expression not a String
 ;~ 	if Not IsFunc($sCallback) Then
