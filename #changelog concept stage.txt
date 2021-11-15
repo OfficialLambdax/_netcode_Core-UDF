@@ -1,3 +1,15 @@
+14.11.2021 (DD/MM/YYYY) 0.1.5.9
+	Fixes
+		- Fixed a couple mistakes that lead to the inability of _netcode to process a disconnect, if the disconnect appeared during staging.
+		
+		- Removed a wrong placed WSAGetLastError call that had the effect that a disconnect error couldnt be catched when using _netcode_TCPConnect().
+		
+	Changes
+		- The Client now no longer sends its plain user login password to the server, but instead its SHA256 hash. The Client hashes the plain text password by itself, so no code changes need to be done. The change was done to have the server never know what the plain text password of the user is and also because the plain text password will be used for a feature that comes with the Usermanagement overhaul, where the Server can allow its clients to have a encrypted container that only the clients have access too.
+		
+		The Server however still accepts the plain password and hashes it itself then for compatibility with older _netcode Versions. This compatibility patch however is not permanent and will be removed in a future version.
+
+
 12.11.2021 (DD/MM/YYYY) 0.1.5.8
 	
 	Fixes
