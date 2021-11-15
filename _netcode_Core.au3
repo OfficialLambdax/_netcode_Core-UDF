@@ -95,6 +95,18 @@
 			See __netcode_EventStrippingFix()
 #ce
 
+
+#cs
+	Credits
+
+		Big Thanks to TheXman@autoitscript.com !
+		Without his CryptoNG UDF (https://www.autoitscript.com/forum/files/file/490-cryptong-udf-cryptography-api-next-generation)
+		it wouldnt been possible for me to make use of the Next Gen cryptography api. The complete encryption part of this UDF lies on top of his UDF.
+		His UDF however got stripped down as much as possible to be used easier and faster within _netcode. Big thanks again.
+
+
+#ce
+
 ; In General you will never set any of these Globaly by hand, but right now the Option Functions are unfinished. So changes here can be made.
 ; Beaware that most of these globals will be removed soon and linked to the parents and clients, so that each have their own options.
 ; Just Default Options will remain here and you will be able to set these in a specific Function.
@@ -189,7 +201,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.8"
+Global Const $__net_sNetcodeVersion = "0.1.5.9"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -325,7 +337,7 @@ Func _netcode_RecvManageExecute(Const $hSocket, $hParentSocket = False)
 	; recv packages
 	Local $sPackages = __netcode_RecvPackages($hSocket)
 	Local $nError = @error
-	If $nError or @extended Then
+	If @extended = 1 Then
 		__netcode_TCPCloseSocket($hSocket)
 		__netcode_RemoveSocket($hSocket, False, False, $nError)
 	EndIf
@@ -422,9 +434,11 @@ Func _netcode_TCPConnect($sIP, $sPort, $bDontAuthAsNetcode = False, $sUsername =
 	__netcode_AddSocket($hSocket, '000', 0, $sIP, $sPort, $sUsername, $sPassword)
 	If Not $bDontAuthAsNetcode Then
 		If Not _netcode_AuthToNetcodeServer($hSocket, $sUsername, $sPassword, $arKeyPairs) Then
+			Local $nError = @error
+			Local $nExtended = @extended
 			__netcode_TCPCloseSocket($hSocket)
 			__netcode_RemoveSocket($hSocket)
-			Return __Trace_FuncOut("_netcode_TCPConnect", False)
+			Return SetError($nError, $nExtended, __Trace_FuncOut("_netcode_TCPConnect", False))
 		EndIf
 	EndIf
 
@@ -451,7 +465,7 @@ Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = 
 	; check the answer
 	If $sPackage <> $__net_sAuthNetcodeConfirmationString Then
 
-		__Trace_Error(2, 0, "Server didnt aus as expected", "", $sPackage)
+		__Trace_Error(2, 0, "Server didnt auth as expected", "", $sPackage)
 		Return SetError(2, 0, __Trace_FuncOut("_netcode_AuthToNetcodeServer", False)) ; server didnt auth as expected
 
 	EndIf
@@ -495,7 +509,8 @@ Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = 
 ;~ 		__netcode_TCPSend($hSocket, __netcode_AESEncrypt("login:" & StringToBinary($sUsername) & ':' & _netcode_SHA256($sPassword), $hPassword))
 ;~ 		__netcode_TCPSend($hSocket, __netcode_AESEncrypt("login:" & StringToBinary($sUsername) & ':' & $sPassword, $hPassword))
 ;~ 		__netcode_TCPSend($hSocket, __netcode_AESEncrypt(StringToBinary("login:" & StringToBinary($sUsername) & ':' & $sPassword), $hPassword))
-		__netcode_TCPSend($hSocket, __netcode_AESEncrypt(StringToBinary("login:" & $sUsername & ':' & $sPassword), $hPassword))
+;~ 		__netcode_TCPSend($hSocket, __netcode_AESEncrypt(StringToBinary("login:" & $sUsername & ':' & $sPassword), $hPassword))
+		__netcode_TCPSend($hSocket, __netcode_AESEncrypt(StringToBinary("login:" & $sUsername & ':' & _netcode_SHA256($sPassword)), $hPassword))
 
 		; wait for answer
 		$sPackage = __netcode_PreRecvPackages($hSocket)
@@ -2007,11 +2022,9 @@ Func __netcode_ManageUser($hSocket, $sPackages)
 	Local $arPackages = StringSplit($sPackages, ':', 1)
 	If $arPackages[0] < 3 Then
 		; disconnect
-;~ 		__netcode_PreDisconnect($hSocket, True, True, True)
 		Return SetError(__netcode_TCPCloseSocket($hSocket), __netcode_RemoveSocket($hSocket), __Trace_FuncOut("__netcode_ManageUser", False))
 	ElseIf $arPackages[1] <> 'login' Then
 		; disconnect
-;~ 		__netcode_PreDisconnect($hSocket, True, True, True)
 		Return SetError(__netcode_TCPCloseSocket($hSocket), __netcode_RemoveSocket($hSocket), __Trace_FuncOut("__netcode_ManageUser", False))
 	EndIf
 
@@ -2059,8 +2072,12 @@ Func __netcode_ManageUserLogin($hSocket, $arPacket, $hPassword)
 	EndIf
 
 	; check credentials
-	If StringLen($arPacket[3]) > $__net_nMaxPasswordLen Then Return SetError(__netcode_TCPCloseSocket($hSocket), __netcode_RemoveSocket($hSocket), __Trace_FuncOut("__netcode_ManageUserLogin", False))
-	If $arUserDB[$nIndex][1] <> _netcode_SHA256($arPacket[3]) Then
+	If StringLen($arPacket[3]) <> 66 Then
+		if StringLen($arPacket[3]) <= $__net_nMaxPasswordLen Then $arPacket[3] = _netcode_SHA256($arPacket[3])
+		if StringLen($arPacket[3]) <> 66 Then Return SetError(__netcode_TCPCloseSocket($hSocket), __netcode_RemoveSocket($hSocket), __Trace_FuncOut("__netcode_ManageUserLogin", False))
+	EndIf
+
+	If $arUserDB[$nIndex][1] <> $arPacket[3] Then
 		__netcode_TCPSend($hSocket, __netcode_AESEncrypt("Wrong", $hPassword))
 ;~ 		__netcode_PreDisconnect($hSocket, True, True, True)
 
@@ -2319,7 +2336,7 @@ Func __netcode_PreRecvPackages(Const $hSocket)
 
 	Do
 		$sPackage = __netcode_RecvPackages($hSocket)
-		If @error = 1 Then
+		If @extended = 1 Then
 ;~ 			__netcode_TCPCloseSocket($hSocket)
 ;~ 			__netcode_RemoveSocket($hSocket)
 
@@ -4820,7 +4837,7 @@ Func __netcode_TCPConnect($sIP, $sPort, $nAdressFamily = 2)
 	If $arGen[0] <> 0 Then
 		$nError = __netcode_WSAGetLastError()
 		__Trace_Error($nError, 0)
-		Return SetError(__netcode_WSAGetLastError(), 0, __Trace_FuncOut("__netcode_TCPConnect", -1))
+		Return SetError($nError, 0, __Trace_FuncOut("__netcode_TCPConnect", -1))
 	EndIf
 
 	; disable Nagle algorithm for testing https://docs.microsoft.com/en-us/windows/win32/api/winsock/nf-winsock-setsockopt
@@ -4976,6 +4993,9 @@ Func __netcode_CheckEncryption()
 
 	Return True
 EndFunc   ;==>__netcode_CheckEncryption
+
+#Region ===========================================================================================================================
+; Stripped down CryptoNG UDF by TheXman@autoitscript.com
 
 Func __netcode_AESEncrypt($sData, $sPW)
 	__Trace_FuncIn("__netcode_AESEncrypt", "$sData", "$sPW")
@@ -5580,6 +5600,9 @@ Func __netcode_CryptShutdown()
 	EndIf
 	__Trace_FuncOut("__netcode_CryptShutdown")
 EndFunc   ;==>__netcode_CryptShutdown
+
+; Stripped down CryptoNG UDF by TheXman@autoitscript.com
+#EndRegion ===========================================================================================================================
 
 #cs
 ; lznt functions from xxxxxxxxxxxxxxxxxxxxxxxxxx idk know actually
