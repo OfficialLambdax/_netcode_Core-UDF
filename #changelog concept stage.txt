@@ -1,3 +1,30 @@
+22.12.2021 (DD/MM/YYYY) 0.1.5.10
+
+	Fixes
+		- Fixed _netcode_SocketGetUser(). When used on the clientside the function returned False previously.
+		
+		- Reverted a fix made in this update - (Fixed a bug where some characters where being converted to '?' on the receivers end). The issue lies in the StringToBinary and BinaryToString conversions within the __netcode_SendPacketQuo() and __netcode_RecvPackages() functions. I have to use $SB_UTF8 to create support for those chars, but doing so produces data corruption occasionally. I figured out why, but the conversion needs to be done in the packet creation (which has yet to be overhauled) to make sure no corruption happens.
+		
+	Changes
+		- _netcode_TCPSend() got an extra check to validate that the socket data is ment to be send to, is actually known to _netcode. If it fails then @error will be 0 and @extended will be 1.
+		
+		- _netcode_UseNonCallbackEvent() now resets the data buffer when called. This change is done to prevent 'old' data to be retrieved with the current request.
+		
+		- Removed unnecessary development notes from the UDF header.
+		
+	Additions
+		- _netcode_ClientGetParent() returns the parent socket of the given client socket
+		
+		- _netcode_GetParents() returns all known parent sockets managed by _netcode
+		
+		- Added additional Credits to the header for functions that where not made by me.
+		
+		- Added a License.
+		
+	Recently discovered bug
+		- In VERY rare cases _netcode holds up a socket and requests packet resends indefinitely. _netcode then starts to flood the memory and no socket interactions can be made. This issue is so rare that i couldnt yet determine why it happens. But if it does then seemingly only with the first packets that get send in the 'netcode' stage. The process then either has to stop or the socket needs to be disconnected to fix the issue and to free the ram. Since i do not know exactly why it is caused i implemented a temporary patch which will disconnnect the socket if a packet resend is requested. This basically disables the packet safety systems for now, but thats much better then to have a BSOD because the ram is full.
+
+
 14.11.2021 (DD/MM/YYYY) 0.1.5.9
 	Fixes
 		- Fixed a couple mistakes that lead to the inability of _netcode to process a disconnect, if the disconnect appeared during staging.

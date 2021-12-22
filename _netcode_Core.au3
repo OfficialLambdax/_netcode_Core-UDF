@@ -3,6 +3,10 @@
 #include <Array.au3> ; For development
 ;~ Opt("MustDeclareVars", 1)
 #cs
+
+	Github
+		https://github.com/OfficialLambdax/_netcode_Core-UDF
+
 	Terminology
 		Parent
 			parents are all listening sockets. So if you call TCPListen the returned socket is a parent. Every incoming connection accepted with TCPAccept will be a Client of that parent.
@@ -23,43 +27,6 @@
 			To be clear: Just not be executed, _netcode will still receive, unpack and store incoming packets. However only until the Buffer
 			limit is reached. Every packet exceeding the buffer will be voided.
 
-	Todo
-		Auto Blocking rules
-			- if a client fails in the staging process and based at which point it gets temporarly blocked for seconds or minutes
-				user should be able to configure that.
-
-		Toggle to no longer accept new connection and / or toggle to define how many connections are allowed per second and by ip
-
-		SetOption a toggleable Rate Limit to limit the amount a IP can connect and send data
-
-		SetOption a toggleable general limit of connects and recv/sends in a second
-
-		BytesPerSecond Send and Recv for parent and client
-			i may have coded bullshit with the BytesPerSecond function, it shows a higher and somewhat wonky results compared to windows own utilities.
-			i deactivated the func ...
-			Note: Save the send and received bytes for multiple seconds and calculate the average
-
-
-		Send _netcode Version and Branch to Server and check if compatible.
-
-		Complete the Packet creation and processor including the Encryption part
-
-		Look into CryptoNG for the CryptIV randomizer, see what CryptIV even is for and how much it adds to security
-
-		Save VarTypes in the Serializer and recreate them in the Unserializer
-
-		Limit all inputs in the staging process and validate it to protect from ddos
-
-		Fasten up TCPRecv
-
-		See why calling _netcode_Loop() in an Event has issues
-
-		Test Socket Linking
-			Also make its possible that both the server and the client can call it, but always so that the
-			client connects to the server.
-
-		_netcode is slower when the script is compiled. In the Raw linked mode up to 50 MB/s slower
-			Why?
 
 		Add Handshake modes
 			- Diffie–Hellman key exchange with a default and _netcode_SetInternalOption() Pi list
@@ -77,12 +44,6 @@
 			https://de.wikipedia.org/wiki/X.509
 			https://docs.microsoft.com/en-us/azure/iot-hub/tutorial-x509-introduction
 
-
-	Not Possible
-
-		ASync requires to set GUIRegisterMsg(), but Autoit is limited to 256 msg's. Also when registering even just a single
-			msg, the overall program slows down by 10 mb/s. This is inacceptable
-
 	Known Bugs
 		Mayor - Having a high $__net_nMaxRecvBufferSize can result in a Hang. Why?
 			Bug appears in the file send example - have the maxmimum buffer set to 1048576 * 25 to experience the bug
@@ -93,8 +54,9 @@
 		Stripping
 			use #AutoIt3Wrapper_Au3stripper_OnError=ForceUse in your Script and add all Event Functions to a Anti Stripping function.
 			See __netcode_EventStrippingFix()
-#ce
 
+
+#ce
 
 #cs
 	Credits
@@ -104,6 +66,42 @@
 		it wouldnt been possible for me to make use of the Next Gen cryptography api. The complete encryption part of this UDF lies on top of his UDF.
 		His UDF however got stripped down as much as possible to be used easier and faster within _netcode. Big thanks again.
 
+		Another big Thanks to j0kky@autoitscript.com !
+		Two functions from his winsock.au3 UDF are currently in use within this UDF.
+		Note: both functions will be removed at some point once i had the time to code my own.
+
+#ce
+
+#cs
+	License (This license is temporary)
+
+		Copyright (c) 2021 OfficialLambdax@github.com
+
+		Permission is hereby temporary granted, free of charge, to any person obtaining a copy of this software
+		and associated documentation files (the "Software"), to deal in the Software without restriction,
+		including without further limitation the rights to use, copy, modify, merge, publish, distribute,
+		and/or sell copies of the Software subject to the following conditions:
+
+		The above copyright notice and this permission notice shall be included in all copies or substantial
+		portions of the Software.
+
+		THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+		NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+		IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+		WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+		SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+		Temporary means that your permission, as defined and granted above, will be fully revoked once either a newer or
+		different license for this software is put in place or either once the License of this Software is removed.
+		The new License then might grant new or similiar permissions. In order to check if this license and your
+		permissions are terminated, you have to frequently check the Offical Software repository.
+
+		Sublicensing is not granted.
+
+		This license does not affect potions of the Software that where not made by the Author of this
+		Software and are maybe / or will be differently licensed. These potions where adequately encased
+		with #Region and #EndRegion statements. The authors of these potions can be located at the "Credits"
+		section in the Software source code header.
 
 #ce
 
@@ -165,7 +163,7 @@ Global $__net_arTraceErrors[0][9] ; date | time | funcname | error code | extend
 
 ; ===================================================================================================================================================
 ; Internals dont change
-Global $__net_arSockets[0]
+Global $__net_arSockets[0] ; parent sockets
 Global $__net_hWs2_32 = -1 ; Ws2_32.dll handle
 Global $__net_sAuthNetcodeString = 'iT0325873JoWv5FVOY3' ; this string indicates to the server that a _netcode client is connecting
 Global $__net_sAuthNetcodeConfirmationString = '09iCKqRh80D27' ; the server then responds with this, confirming to the client that it is a _netcode server.
@@ -201,7 +199,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.9"
+Global Const $__net_sNetcodeVersion = "0.1.5.10"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -453,7 +451,7 @@ Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = 
 	__Trace_FuncIn("_netcode_AuthToNetcodeServer", $hSocket, $sUsername, "$sPassword", "$arKeyPairs")
 
 	; authing to the server
-	__netcode_TCPSend($hSocket, StringToBinary($__net_sAuthNetcodeString))
+	__netcode_TCPSend($hSocket, StringToBinary($__net_sAuthNetcodeString, 4))
 
 	; wait for answer
 	Local $sPackage = __netcode_PreRecvPackages($hSocket)
@@ -506,11 +504,7 @@ Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = 
 
 	If $sUsername <> '' Then
 		; try login in by sending our user and password
-;~ 		__netcode_TCPSend($hSocket, __netcode_AESEncrypt("login:" & StringToBinary($sUsername) & ':' & _netcode_SHA256($sPassword), $hPassword))
-;~ 		__netcode_TCPSend($hSocket, __netcode_AESEncrypt("login:" & StringToBinary($sUsername) & ':' & $sPassword, $hPassword))
-;~ 		__netcode_TCPSend($hSocket, __netcode_AESEncrypt(StringToBinary("login:" & StringToBinary($sUsername) & ':' & $sPassword), $hPassword))
-;~ 		__netcode_TCPSend($hSocket, __netcode_AESEncrypt(StringToBinary("login:" & $sUsername & ':' & $sPassword), $hPassword))
-		__netcode_TCPSend($hSocket, __netcode_AESEncrypt(StringToBinary("login:" & $sUsername & ':' & _netcode_SHA256($sPassword)), $hPassword))
+		__netcode_TCPSend($hSocket, StringToBinary(__netcode_AESEncrypt(StringToBinary("login:" & $sUsername & ':' & _netcode_SHA256($sPassword)), $hPassword), 4))
 
 		; wait for answer
 		$sPackage = __netcode_PreRecvPackages($hSocket)
@@ -520,7 +514,7 @@ Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = 
 		EndIf
 
 		; decrypt answer
-		$sDecData = BinaryToString(__netcode_AESDecrypt(Binary($sPackage), $hPassword))
+		$sDecData = BinaryToString(__netcode_AESDecrypt(Binary(BinaryToString($sPackage)), $hPassword))
 
 		; switch answer
 		Switch $sDecData
@@ -550,6 +544,8 @@ Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = 
 
 		EndSwitch
 
+		__netcode_SocketSetUser($hSocket, $sUsername)
+
 		; third step done
 		__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(3, $sUsername))
 	EndIf
@@ -565,7 +561,7 @@ Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = 
 	EndIf
 
 	; decrypt answer
-	$sDecData = BinaryToString(__netcode_AESDecrypt(Binary($sPackage), $hPassword))
+	$sDecData = BinaryToString(__netcode_AESDecrypt(Binary(BinaryToString($sPackage)), $hPassword))
 	Local $arPreSyn = __netcode_CheckParamAndUnserialize($sDecData)
 	If Not IsArray($arPreSyn) Then
 		__Trace_Error(7, 0, "Could not decrypt Answer")
@@ -665,11 +661,18 @@ EndFunc   ;==>__netcode_PreSyn
 ; settings would break the script.
 ; add a Timeout that can be set with _netcode_SetOption() and / or in the parameters $nWaitForFloodPreventionTimeout
 ; add the parameter to disable packet encryption for the given data.
+; recreate the whole function so that we do not call createpackage over and over
 Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPrevention = True)
 	__Trace_FuncIn("_netcode_TCPSend", $hSocket, $sEvent, "$sData", $bWaitForFloodPrevention)
 	Local $sPackage = ""
 	Local $nError = 0
 	Local $sID = ""
+
+	; quick check if the socket is known to _netcode
+	If Not __netcode_CheckSocket($hSocket) Then
+		__Trace_Error(0, 1, "Socket is unknown")
+		Return SetError(0, 1, __Trace_FuncOut("_netcode_TCPSend", False))
+	EndIf
 
 	if $sEvent = 'connection' Or $sEvent = 'disconnected' Then
 		__Trace_Error(10, 0, "The " & $sEvent & " event is an invalid event to be send")
@@ -1045,10 +1048,18 @@ EndFunc   ;==>_netcode_GetDynamicPacketContentSize
 
 
 Func _netcode_UseNonCallbackEvent(Const $hSocket, $sMyEvent, $sSendEvent, $sData = "", $nTimeout = 10000) ; 10 sec default timeout
+
+	; resetting eventdata in case there is something stored that got returned from a previous failed call
+	_netcode_GetEventData($hSocket, $sMyEvent)
+
+	; sending request
 	_netcode_TCPSend($hSocket, $sSendEvent, $sData)
+
+
 	Local $arEventData = ""
 	Local $hTimer = TimerInit()
 
+	; waiting for response
 	Do
 		if TimerDiff($hTimer) > $nTimeout Then Return SetError(2, 0, "") ; timeouted
 
@@ -1364,6 +1375,20 @@ Func _netcode_ParentGetClients(Const $hSocket, $bJustTheCount = False)
 		Return __Trace_FuncOut("_netcode_ParentGetClients", __netcode_ParentGetClients($hSocket))
 	EndIf
 EndFunc   ;==>_netcode_ParentGetClients
+
+; returns the parent socket of the given client socket
+Func _netcode_ClientGetParent(Const $hSocket)
+	Return __netcode_ClientGetParent($hSocket)
+EndFunc
+
+; returns all known parent sockets managed by _netcode
+Func _netcode_GetParents($bJustTheCount = False)
+	if $bJustTheCount Then
+		Return UBound($__net_arSockets)
+	Else
+		Return $__net_arSockets
+	EndIf
+EndFunc
 
 ; use this function to combine params into one string for when you want to send multiple params to a event. Arrays (also 2D) are supported too.
 ; if you have a event Func _event_example($user, $password, $idk) then you can simply use this _netcode_TCPSend(socket, 'example', _netcode_sParams($user, $password, $idk)).
@@ -2017,7 +2042,7 @@ EndFunc   ;==>__netcode_ManageHandshake
 Func __netcode_ManageUser($hSocket, $sPackages)
 	__Trace_FuncIn("__netcode_ManageUser", "$sPackages")
 	Local $hPassword = __netcode_SocketGetPacketEncryptionPassword($hSocket)
-	$sPackages = BinaryToString(__netcode_AESDecrypt(StringToBinary($sPackages), $hPassword))
+	$sPackages = BinaryToString(__netcode_AESDecrypt(Binary(BinaryToString($sPackages)), $hPassword))
 
 	Local $arPackages = StringSplit($sPackages, ':', 1)
 	If $arPackages[0] < 3 Then
@@ -2119,7 +2144,8 @@ Func __netcode_ManageUserLogin($hSocket, $arPacket, $hPassword)
 
 
 	; send sucess and additional data
-	__netcode_TCPSend($hSocket, __netcode_AESEncrypt("Success", $hPassword))
+;~ 	__netcode_TCPSend($hSocket, __netcode_AESEncrypt("Success", $hPassword))
+	__netcode_TCPSend($hSocket, StringToBinary(__netcode_AESEncrypt("Success", $hPassword), 4))
 
 	; has to save the UID not the username <<<=======================================<<<<<<<
 	__netcode_SocketSetUser($hSocket, $arPacket[2])
@@ -2129,7 +2155,8 @@ EndFunc   ;==>__netcode_ManageUserLogin
 Func __netcode_ManagePreSyn($hSocket, $sPackages)
 	__Trace_FuncIn("__netcode_ManagePreSyn", $hSocket, "$sPackages")
 	Local $hPassword = __netcode_SocketGetPacketEncryptionPassword($hSocket)
-	$sPackages = __netcode_AESDecrypt(StringToBinary($sPackages), $hPassword)
+;~ 	$sPackages = __netcode_AESDecrypt(StringToBinary($sPackages), $hPassword)
+	$sPackages = BinaryToString(__netcode_AESDecrypt(Binary(BinaryToString($sPackages)), $hPassword))
 
 ;~ 	MsgBox(0, "PreSyn", BinaryToString($sPackages))
 
@@ -2152,7 +2179,8 @@ Func __netcode_ManagePreSyn($hSocket, $sPackages)
 
 	Local $sPreSyn = StringToBinary(__netcode_CheckParamAndSerialize($arPreSyn))
 
-	__netcode_TCPSend($hSocket, __netcode_AESEncrypt($sPreSyn, $hPassword))
+;~ 	__netcode_TCPSend($hSocket, __netcode_AESEncrypt($sPreSyn, $hPassword))
+	__netcode_TCPSend($hSocket, StringToBinary(__netcode_AESEncrypt($sPreSyn, $hPassword), 4))
 
 	__netcode_SeedingClientStrings($hSocket, $arPreSyn[3][1])
 
@@ -2410,6 +2438,7 @@ Func __netcode_SendPacketQuo()
 	For $i = 0 To UBound($arTempSendQuo) - 1
 
 		; send non-blocking
+;~ 		$sData = StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo'), 4) ; Reverted - Fix from 1.5.10
 		$sData = StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo'))
 		__netcode_TCPSend($arTempSendQuo[$i], $sData, False)
 		$nError = @error
@@ -2677,6 +2706,8 @@ Func __netcode_AddToExecutionBuffer(Const $hSocket, $sID, $sEvent, $sData)
 		; missing packet/s - save this packet to its packet id and set the socket OnHold
 		_netcode_SetSocketOnHold($hSocket, True)
 
+;~ 		MsgBox(0, @ScriptName, "Expected : " & $nCurrentBufferIndex & " Got : " & $nPacketID) ; debug for the rare bug discovered in 0.1.5.10
+
 		; request all missing packets.
 		; ~ todo if we miss alot of packets then do something else.
 		For $i = $nCurrentBufferIndex To $nPacketID
@@ -2854,6 +2885,15 @@ Func __netcode_EventInternal(Const $hSocket, $sData)
 
 
 		Case 'packet_getresend'
+
+			; temporary patch to combat the discovered bug from v0.1.5.10
+			__netcode_TCPCloseSocket($hSocket)
+			__netcode_RemoveSocket($hSocket)
+
+			Return
+
+
+
 			$sPacket = __netcode_GetElementFromSafetyBuffer($hSocket, $arData[2])
 			If $sPacket Then
 				__netcode_AddPacketToQue($hSocket, BinaryToString($sPacket), $arData[2])
@@ -2882,6 +2922,7 @@ Func __netcode_ExecuteEvent(Const $hSocket, $sEvent, $sData = '')
 
 	; check if event is set. if not check if the event is a default event.
 	Local $sCallback = _storageS_Read($hSocket, '_netcode_Event' & $sEvent)
+;~ 	ConsoleWrite(@TAB & BinaryToString($sEvent) & @TAB & $sCallback & @CRLF)
 	If $sCallback == False Then
 		$sCallback = _storageS_Read('Internal', '_netcode_DefaultEvent' & $sEvent)
 		If $sCallback == False Then
@@ -3248,12 +3289,17 @@ Func __netcode_RecvPackages(Const $hSocket)
 
 ;~ 		__netcode_SocketSetRecvBytesPerSecond($hSocket, $nBytes)
 
-		$sPackages &= BinaryToString($sTCPRecv)
+		$sPackages &= BinaryToString($sTCPRecv) ; old way
+;~ 		$sPackages &= BinaryToString($sTCPRecv, 4) ; Reverted - Fix from 1.5.10
+;~ 		$sPackages &= StringMid($sTCPRecv, 3) ; inefficient
+
 		; todo ~ check size and if it exceeds the max Recv Buffer Size
 
 		If TimerDiff($hTimer) > $__net_nTCPRecvBufferEmptyTimeout Then ExitLoop
 
 	Until $sTCPRecv = ''
+
+;~ 	$sPackages = BinaryToString('0x' & $sPackages, 4) ; part of StringMid
 
 	__netcode_SocketSetRecvBytesPerSecond($hSocket, $nBytes)
 
@@ -4508,6 +4554,9 @@ Func __netcode_TCPRecv(Const $hSocket)
 	Return SetError(0, $arRet[0], BinaryMid(DllStructGetData($tRecvBuffer, 1), 1, $arRet[0]))
 EndFunc
 
+#Region ===========================================================================================================================
+; Code taken from j0kky
+
 ;~ #cs
 ; #FUNCTION# ====================================================================================================================
 ; Name...........: _TCPRecv
@@ -4739,6 +4788,8 @@ Func __netcode_TCPAccept($iMainsocket)
 	Return SetError($nCode, 0, __Trace_FuncOut("__netcode_TCPAccept", $nReturn))
 EndFunc   ;==>__netcode_TCPAccept
 
+#EndRegion ===========================================================================================================================
+
 ; ipv6
 ; https://docs.microsoft.com/en-us/windows/win32/winsock/sockaddr-2
 ; https://docs.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-socket
@@ -4850,113 +4901,6 @@ Func __netcode_TCPConnect($sIP, $sPort, $nAdressFamily = 2)
 
 	Return __Trace_FuncOut("__netcode_TCPConnect", $hSocket)
 EndFunc   ;==>__netcode_TCPConnect
-
-#cs for comparison
-; #FUNCTION# ***************************************************************************************
-; Name.........:  _WSA_TCPConnect()
-;..............:------------------------------------------------------------------------------------
-; Version......: AutoIt v3.3.8.1+ (32bit)
-;..............:------------------------------------------------------------------------------------
-; Description..: TCP socket connection (non-blocking)
-;..............:------------------------------------------------------------------------------------
-; Dependencies.: a handle to ws2_32.dll, _WSA_GetLastError()
-;..............:------------------------------------------------------------------------------------
-; Return Value.: @error returns 0, else returns a non-blocking connected socket
-;..............:------------------------------------------------------------------------------------
-; @error.......; -1 = dll error
-;..............: -2 = ip incorrect
-;..............: -3 = port incorrect
-;..............: -4 = socket error
-;..............: else, WSA Error Code
-;..............:
-; .............: A list of WSA Error Codes can be found here:
-;..............: http://msdn.microsoft.com/en-us/library/windows/desktop/ms740668(v=vs.85).aspx
-;***************************************************************************************************
-Func __netcode_TCPConnect($sIPAddress, $nPort, $nAdressFamily = 2)
-	If $__net_hWs2_32 = -1 Then $__net_hWs2_32 = DllOpen('Ws2_32.dll')
-	Local $hWS2_32 = $__net_hWs2_32
-    ;
-    ;[get ip handle]
-    Local $aResult = DllCall($hWS2_32, 'ulong', 'inet_addr', 'str', $sIPAddress)
-    If @error Then Return SetError(-1, 0, -1); dll error
-    Local $nError = __netcode_WSAGetLastError()
-    If $nError Then
-        Return SetError($nError, 0, 0); WSA Error Code
-    ElseIf $aResult[0] < 1 Or $aResult[0] = 4294967295 Then
-        Return SetError(-2, 0, 0); ip incorrect
-    Else; <- success, we have a ip handle
-        Local $hIPAddr = $aResult[0]
-    EndIf
-    ;
-    ;[get port handle]
-    $aResult = DllCall($hWS2_32, 'ushort', 'htons', 'ushort', $nPort)
-    $nError = __netcode_WSAGetLastError()
-    If $nError Then
-        Return SetError($nError, 0, 0); WSA Error Code
-    ElseIf $aResult[0] < 1 Then
-        Return SetError(-3, 0, 0); port incorrect
-    Else; <- success, we have a port handle
-        Local $hPort = $aResult[0]
-    EndIf
-    ;
-    ;[set binding]
-    Local $tSockAddr = DllStructCreate('short sin_family;ushort sin_port;ulong sin_addr;char sin_zero[8];')
-    DllStructSetData($tSockAddr, 1, 2)
-    DllStructSetData($tSockAddr, 2, $hPort)
-    DllStructSetData($tSockAddr, 3, $hIPAddr)
-    Local $nSize = DllStructGetSize($tSockAddr)
-    ;
-    ;[create socket]
-    $aResult = DllCall($hWS2_32, 'uint', 'socket', 'int', 2, 'int', 1, 'int', 6); AF_INET, SOCK_STREAM, IPPROTO_TCP
-    $nError = __netcode_WSAGetLastError()
-    If $nError Then
-        Return SetError($nError, 0, 0); WSA Error Code
-    ElseIf $aResult[0] < 1 Or $aResult[0] = 4294967295 Then
-        Return SetError(-4, 0, 0); socket error
-    Else; <- success, we have a socket
-        Local $nSocket = $aResult[0]
-    EndIf
-    ;
-    ;[set non-blocking mode]
-    $aResult = DllCall($hWS2_32, 'int', 'ioctlsocket', 'int', $nSocket, 'dword', 0x8004667E, 'uint*', 1)
-    $nError = __netcode_WSAGetLastError()
-    If $nError Or $aResult[0] <> 0 Then
-        __netcode_TCPCloseSocket($nSocket)
-        Return SetError($nError, 0, 0); WSA Error Code
-    EndIf
-    ;
-    ;[set timeout]
-    Local $t1 = DllStructCreate('int;int')
-    DllStructSetData($t1, 1, 1)
-    DllStructSetData($t1, 2, $nSocket)
-    Local $t2 = DllStructCreate('int;int')
-    DllStructSetData($t2, 1, 5); <- 5 seconds
-    DllStructSetData($t2, 2, 0); <- 0 microseconds
-    ;
-    ;[try connect]
-    $aResult = DllCall($hWS2_32, 'int', 'connect', 'int', $nSocket, 'struct*', $tSockAddr, 'int', $nSize)
-    $nError = __netcode_WSAGetLastError()
-    If $nError Then
-        __netcode_TCPCloseSocket($nSocket)
-        Return SetError($nError, 0, 0); WSA Error Code
-    ElseIf $aResult[0] > 0 Then
-        __netcode_TCPCloseSocket($nSocket)
-        Return SetError(-4, 0, 0); socket error
-    EndIf
-    ;
-    ;[init timeout]
-    $aResult = DllCall($hWS2_32, 'int', 'select', 'int', $nSocket, 'struct*', $t1, 'struct*', $t1, 'ptr', 0, 'struct*', $t2)
-    $nError = __netcode_WSAGetLastError()
-    If $nError Then
-        __netcode_TCPCloseSocket($nSocket)
-        Return SetError($nError, 0, 0); WSA Error Code
-    ElseIf Number($aResult[0]) = 0 Then
-        Return SetError(10060, 0, 0); WSAETIMEDOUT
-    Else
-        Return SetError(0, 0, $nSocket); return non-blocking socket
-    EndIf
-EndFunc
-#ce
 
 Func __netcode_CheckEncryption()
 	__netcode_CryptStartup()
