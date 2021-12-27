@@ -1,3 +1,17 @@
+27.12.2021 (DD/MM/YYYY) 0.1.5.11
+
+	Fixes
+		- (1) if $bWaitForFloodPrevention was set to True for _netcode_TCPSend() and (2) while the function waited for the buffer to have enough space for the current packet and (3) if another packet was send through a event that might got called in the meant time, THEN _netcode_TCPSend() quod a packet with the wrong id and therefore triggered a packet safety response from the receiver. This was maybe the cause for the recent bug discovered in v0.1.5.10.
+	
+	Additions
+		- Added a ConsoleWrite for when _netcode forces a disconnect duo to the recent bug from v0.1.5.10
+		
+	Changes
+		- Optimised _netcode_TCPSend() and __netcode_CreatePackage(). Both funcs are not overhauled or faster now but they no longer produce the bug mentioned in Fixes.
+		
+		- If in a Event the socket gets closed or released from _netcode then __netcode_ExecutePackets() will stop the execution of further packets from now on.
+	
+
 22.12.2021 (DD/MM/YYYY) 0.1.5.10
 
 	Fixes

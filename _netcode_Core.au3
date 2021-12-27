@@ -150,7 +150,7 @@ Global $__net_bTraceLogEnable = False
 Global $__net_bTraceLogErrorEnable = True
 
 ; will save all errors, its extendeds and further information to an array. Array can be looked at with _ArrayDisplay()
-Global $__net_bTraceLogErrorSaveToArray = True
+Global $__net_bTraceLogErrorSaveToArray = False
 
 ; each and every function becomes a Timer set to it. Once the function is done the Tracer outputs the time it took to finish the function.
 ; this is mostly a development function to see where things take long and to see what can be improved.
@@ -199,7 +199,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.10"
+Global Const $__net_sNetcodeVersion = "0.1.5.11"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -661,60 +661,93 @@ EndFunc   ;==>__netcode_PreSyn
 ; settings would break the script.
 ; add a Timeout that can be set with _netcode_SetOption() and / or in the parameters $nWaitForFloodPreventionTimeout
 ; add the parameter to disable packet encryption for the given data.
-; recreate the whole function so that we do not call createpackage over and over
 Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPrevention = True)
 	__Trace_FuncIn("_netcode_TCPSend", $hSocket, $sEvent, "$sData", $bWaitForFloodPrevention)
-	Local $sPackage = ""
-	Local $nError = 0
-	Local $sID = ""
 
-	; quick check if the socket is known to _netcode
+	; check if the socket is known to _netcode
 	If Not __netcode_CheckSocket($hSocket) Then
 		__Trace_Error(0, 1, "Socket is unknown")
 		Return SetError(0, 1, __Trace_FuncOut("_netcode_TCPSend", False))
 	EndIf
 
+	; check if the given event is illegal
 	if $sEvent = 'connection' Or $sEvent = 'disconnected' Then
 		__Trace_Error(10, 0, "The " & $sEvent & " event is an invalid event to be send")
 		Return SetError(10, 0, __Trace_FuncOut("_netcode_TCPSend", False))
 	EndIf
 
-	Do
-		$sPackage = __netcode_CreatePackage($hSocket, $sEvent, $sData, True)
-		$nError = @error
-		$sID = @extended
+	; create package
+	Local $sPackage = __netcode_CreatePackage($hSocket, $sEvent, $sData)
+	Local $nError = @error
+	Local $sID = @extended
+	Local $nLen = StringLen($sPackage)
 
-;~ 		if StringLen($sPackage) > _netcode_GetMaxPacketContentSize($sEvent, 1) Then Return SetError(10, 0, False) ; this packet is to big to ever get send
-		If StringLen($sPackage) > $__net_nMaxRecvBufferSize Then Return SetError(10, 0, False) ; this packet is to big to ever get send
-		If Not $bWaitForFloodPrevention Then ExitLoop
+	; check package size
+	If $nLen > $__net_nMaxRecvBufferSize Then Return SetError(10, 0, __Trace_FuncOut("_netcode_TCPSend", False)) ; this packet is to big to ever get send
 
-		If $nError Then
-			; check if socket still exists
-			if Not __netcode_CheckSocket($hSocket) Then
-				__Trace_Error($nError, 1, "Socket is no longer known or disconnected")
-				Return SetError($nError, 1, __Trace_FuncOut("_netcode_TCPSend", False))
-			EndIf
+	; check for flood error in the packet creation phase
+	if $nError Then
 
-			; check id querry
-			if $__net_bPacketConfirmation Then
-				_netcode_RecvManageExecute($hSocket)
-			Else
-				__netcode_SendPacketQuoIDQuerry()
-			EndIf
+		; if the wait for flood prevention toggle is set
+		if $bWaitForFloodPrevention Then
+
+			; loop until the packet can be send or the socket is invalid
+			While True
+
+				; check if socket still exists
+				if Not __netcode_CheckSocket($hSocket) Then
+					__Trace_Error($nError, 1, "Socket is no longer known or disconnected")
+					Return SetError($nError, 1, __Trace_FuncOut("_netcode_TCPSend", False))
+				EndIf
+
+				; loop socket
+				if $__net_bPacketConfirmation Then
+					_netcode_RecvManageExecute($hSocket)
+				Else
+					__netcode_SendPacketQuoIDQuerry()
+				EndIf
+
+				; check if the latest packet id changed
+				if _storageS_Read($hSocket, '_netcode_SafetyBufferIndex') <> $sID Then
+
+					; create new package with new packet id
+					$sPackage = __netcode_CreatePackage($hSocket, $sEvent, $sData)
+					$nError = @error
+					$sID = @extended
+					$nLen = StringLen($sPackage)
+
+					; if createpackage() already sayed there is no error then exitloop already
+					if $nError = 0 Then ExitLoop
+				EndIf
+
+				; check if enough buffer space is finally available and exitloop if thats the case
+				if Number(_storageS_Read($hSocket, '_netcode_SafetyBufferSize')) + $nLen < $__net_nMaxRecvBufferSize Then
+					$nError = 0
+					ExitLoop
+				EndIf
+
+				; check for timeout
+				; ~ todo
+
+			WEnd
+
 		EndIf
-	Until $nError = 0
 
-	If $nError Then
-		__Trace_Error($nError, 0)
-		Return SetError($nError, 0, __Trace_FuncOut("_netcode_TCPSend", False))
+		; if still $nError
+		if $nError Then
+			__Trace_Error($nError, 0)
+			Return SetError($nError, 0, __Trace_FuncOut("_netcode_TCPSend", False))
+		EndIf
+
 	EndIf
 
-	; add packet to safety buffer
-	If $sEvent <> 'netcode_internal' Then __netcode_AddToSafetyBuffer($hSocket, $sPackage, StringLen($sPackage))
+	; add packet to safety buffer if it not a internal packet
+	If $sEvent <> 'netcode_internal' Then __netcode_AddToSafetyBuffer($hSocket, $sPackage, $nLen)
 
-	; add packet to que
+	; add packet to send quo
 	__netcode_AddPacketToQue($hSocket, $sPackage, $sID)
 
+	; add a p/s
 	__netcode_SocketSetSendPacketPerSecond($hSocket, 1)
 
 	Return __Trace_FuncOut("_netcode_TCPSend", True)
@@ -1844,6 +1877,9 @@ Func __netcode_ExecutePackets(Const $hSocket)
 
 		__netcode_ExecuteEvent($hSocket, $arPackages[$i][0], $arPackages[$i][1])
 
+		; if the event disconnected the socket or released it then return since there is no longer a purpose to execute more or todo anything else
+		if __netcode_CheckSocket($hSocket) == 0 Then Return __Trace_FuncOut("__netcode_ExecutePackets")
+
 ;~ 		_netcode_TCPSend($hSocket, 'netcode_internal', 'packet_confirmation|' & $i, False)
 		$sID &= $i & ','
 
@@ -2887,6 +2923,12 @@ Func __netcode_EventInternal(Const $hSocket, $sData)
 		Case 'packet_getresend'
 
 			; temporary patch to combat the discovered bug from v0.1.5.10
+			if $__net_bTraceEnable And $__net_bTraceLogErrorEnable Then
+				__Trace_Error(0, 0, "_netcode_Core Error : Forced Disconnect @ " & $hSocket & " duo to bug described in v0.1.5.10")
+			Else
+				ConsoleWrite("! _netcode_Core Error : Forced Disconnect @ " & $hSocket & " duo to bug described in v0.1.5.10" & @CRLF)
+			EndIf
+
 			__netcode_TCPCloseSocket($hSocket)
 			__netcode_RemoveSocket($hSocket)
 
@@ -3111,91 +3153,60 @@ EndFunc   ;==>__netcode_UnserializeArray
 
 ; note - do not Return a binarized packet, since autoit seems to be much faster working with Strings.
 ; i actually got 3 mb/s more by changing from Binary to String processing.
-; marked for recoding. Store the last created packet if it exceeds the packet buffer in _storageS instead of in a Static var.
-; do not add the packet to the safety buffer here... have to see how i do it
 ; this func takes about 15ms on a 1.25mb packet. I think it is the content assembly or the
 ; binary/string conversion of the content when encryption is toggled on, because otherwise this function is done in 2 ms with the same data size.
-; data encryption just takes a small amount of ms, so it has to be something else. As of now i can only think of the BinaryToString() conversion once the Binary exists the
-; aes encryption.
-Func __netcode_CreatePackage(Const $hSocket, $sEvent, $sData, $bLast = False)
-	__Trace_FuncIn("__netcode_CreatePackage", $hSocket, $sEvent, "$sData", $bLast)
-	Local Static $sLast = ''
-	Local Static $nLastLen = 0
-	Local Static $sLastID = ''
+; data encryption just takes a small amount of ms, so it has to be something else. As of now i can only think of the BinaryToString() conversion once the Binary exits the
+; aes encryption func.
+Func __netcode_CreatePackage(Const $hSocket, $sEvent, $sData)
+	__Trace_FuncIn("__netcode_CreatePackage", $hSocket, $sEvent, "$sData")
 
+	; Read the Seeded Packet strings
+	Local $arPacketStrings = __netcode_SocketGetPacketStrings($hSocket)
+	Local $sPacketBegin = $arPacketStrings[0]
+	Local $sPacketInternalSplit = $arPacketStrings[1]
+	Local $sPacketEnd = $arPacketStrings[2]
 
-	Local $sPackage = ''
-	Local $nLen = 0
-	Local $sPacketID = ''
+	; New packet ID
+	Local $sPacketID = _storageS_Read($hSocket, '_netcode_SafetyBufferIndex')
 
-	; if we stored the last packet
-	If $bLast And $sLast <> '' Then
+	; we no longer want to convert data back to string if the user chooses to give it as binary
+;~ 	If IsBinary($sData) Then $sData = BinaryToString($sData)
 
-		If Number(_storageS_Read($hSocket, '_netcode_SafetyBufferSize')) + $nLastLen > $__net_nMaxRecvBufferSize Then
-;~ 			__Trace_Error(1, 0, "Packet is currently to large to be send") ; this is a usually error
-			Return SetError(1, 0, __Trace_FuncOut("__netcode_CreatePackage", False))
-		EndIf
+	; hash data
+	; ~ todo - not implemented yet - have to find a very quick but safe hashing algo
+	Local $sValidationHash = ''
 
-		$sPackage = $sLast
-		$nLen = $nLastLen
-		$sPacketID = $sLastID
+	; create packet content
+	Local $sPackage = $sPacketID & $sPacketInternalSplit & $sValidationHash & $sPacketInternalSplit & $sEvent & $sPacketInternalSplit & $sData
 
+	; compress packet content
+	; ~ todo
 
-		$sLast = ''
-		$nLastLen = 0
-		$sLastID = ''
+	; encrypt packet content
+	If __netcode_SocketGetPacketEncryption($hSocket) Then
+		Local $hPassword = __netcode_SocketGetPacketEncryptionPassword($hSocket)
+;~ 		$sPackage = BinaryToString(__netcode_AESEncrypt(StringToBinary($sPackage), $hPassword))
+		$sPackage = BinaryToString(__netcode_AESEncrypt($sPackage, $hPassword))
+	EndIf
 
-	Else
+	; wrap the packet content
+	$sPackage = $sPacketBegin & $sPackage & $sPacketEnd
+	$nLen = StringLen($sPackage)
 
-		Local $arPacketStrings = __netcode_SocketGetPacketStrings($hSocket)
-		Local $sPacketBegin = $arPacketStrings[0]
-		Local $sPacketInternalSplit = $arPacketStrings[1]
-		Local $sPacketEnd = $arPacketStrings[2]
+	; check if the packet size would exceed the left buffer space
+	If Number(_storageS_Read($hSocket, '_netcode_SafetyBufferSize')) + $nLen > $__net_nMaxRecvBufferSize Then
 
-		Local $sPacketID = _storageS_Read($hSocket, '_netcode_SafetyBufferIndex')
-		Local $sValidationHash = ''
-		Local $hPassword = Ptr("")
+;~ 		__Trace_Error(1, 0, "Packet is currently to large to be send") ; usuall warning, doesnt need to be shown
 
-		; packet content assembly
-		If IsBinary($sData) Then $sData = BinaryToString($sData)
-		$sPackage = $sPacketID & $sPacketInternalSplit & $sValidationHash & $sPacketInternalSplit & $sEvent & $sPacketInternalSplit & $sData
-
-		; compress
-;~ 		$sData = __netcode_lzntcompress(StringToBinary($sData))
-
-		; hash
-
-
-		; encrypt
-		If __netcode_SocketGetPacketEncryption($hSocket) Then
-			$hPassword = __netcode_SocketGetPacketEncryptionPassword($hSocket)
-			; StringToBinary($sPackage) is bad but the AES encryption has issues with anything not ASCII
-			$sPackage = BinaryToString(__netcode_AESEncrypt(StringToBinary($sPackage), $hPassword))
-		EndIf
-
-		; packet wrapping
-;~ 		$sPackage = StringToBinary($sPacketBegin & $sPackage & $sPacketEnd)
-		$sPackage = $sPacketBegin & $sPackage & $sPacketEnd
-		$nLen = StringLen($sPackage)
-
-		; if the current packet would exceed the recv buffer
-		If Number(_storageS_Read($hSocket, '_netcode_SafetyBufferSize')) + $nLen > $__net_nMaxRecvBufferSize Then
-			$sLast = $sPackage
-			$nLastLen = $nLen
-			$sLastID = $sPacketID
-
-;~ 			__Trace_Error(1, 0, "Packet is currently to large to be send") ; usuall error
-			Return SetError(1, 0, __Trace_FuncOut("__netcode_CreatePackage", False))
-		EndIf
+		__Trace_FuncOut("__netcode_CreatePackage")
+		Return SetError(1, $sPacketID, $sPackage)
 
 	EndIf
 
-	; add to the safety buffer
-;~ 	if $sEvent <> 'netcode_internal' Then __netcode_AddToSafetyBuffer($hSocket, $sPackage, $nLen)
+	__Trace_FuncOut("__netcode_CreatePackage")
+	Return SetError(0, $sPacketID, $sPackage)
 
-	Return SetError(0, $sPacketID, __Trace_FuncOut("__netcode_CreatePackage", $sPackage))
-
-EndFunc   ;==>__netcode_CreatePackage
+EndFunc
 
 ; [0] = packet
 ; [1] = len
