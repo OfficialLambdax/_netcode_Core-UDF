@@ -27,33 +27,26 @@
 			To be clear: Just not be executed, _netcode will still receive, unpack and store incoming packets. However only until the Buffer
 			limit is reached. Every packet exceeding the buffer will be voided.
 
+		Active and Inactive Sockets
+			Inactive sockets are Sockets which do not transfer data at the moment. Active sockets are those where data is received from or data is send to currently.
+			So once data is in the buffer the Inactive becomes a active and once not it becomes inactive again. Inactive sockets are very fast to handle.
 
-		Add Handshake modes
-			- Diffie–Hellman key exchange with a default and _netcode_SetInternalOption() Pi list
-			- Diffie–Hellman key exchange with a Pi list provided from a internet source without encryption
-			- Diffie–Hellman key exchange with a Pi list provided from a internet source with a preshared AES key encryption
-			- PreShared key
-			- Transport Layer Security 1.2 (external dll in a seperated _netcode addin?)
-			- Transport Layer Security 1.3 (external dll in a seperated _netcode addin?)
-			-
+		Staging
+			_netcode uses so called Stages. Each and every incomming connection needs to stage through several stages before it is possible to interact with them.
+			Within these stages a session key is handshaked, options are synced, the optional user login is done and more. A client for example always inherits
+			the options from the server and obviously that needs to be done at some point.
 
-		Add two new stages for Server and Client Verification
-			- The Server should be able to verify that the client is authorized to connect.
-			- The Client should be able to verify that the server it connected to is actually the server it wanted
-				to connect to.
-			https://de.wikipedia.org/wiki/X.509
-			https://docs.microsoft.com/en-us/azure/iot-hub/tutorial-x509-introduction
 
 	Known Bugs
 		Mayor - Having a high $__net_nMaxRecvBufferSize can result in a Hang. Why?
 			Bug appears in the file send example - have the maxmimum buffer set to 1048576 * 25 to experience the bug
 			(Bug happens not so often, but when, its very bad)
 
-	Remarks
 
+	Remarks
 		Stripping
 			use #AutoIt3Wrapper_Au3stripper_OnError=ForceUse in your Script and add all Event Functions to a Anti Stripping function.
-			See __netcode_EventStrippingFix()
+			See __netcode_EventStrippingFix() for an example.
 
 
 #ce
@@ -140,7 +133,7 @@ Global $__net_bPacketConfirmation = True
 ; Tracer
 
 ; enables the Tracer. Will slow down the UDF by about 5 %, but needs to be True if you want to use any of the options below.
-; never toggle THIS option in your script or it might hard crash. All others can be toggled anytime.
+; never toggle THIS option in your script or it might hard crash. All other Tracer sub options can be toggled anytime.
 Global $__net_bTraceEnable = False
 
 ; will log every call of a UDF function to the console in a ladder format. Will massively decrease the UDF speed because it floods the console.
@@ -199,12 +192,20 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.11"
+Global Const $__net_sNetcodeVersion = "0.1.5.12"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
 __netcode_EventStrippingFix()
 
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_Startup
+; Description ...: Starts up _netcode. Needs to be called before you use any of the Functions in this UDF
+; Syntax ........: _netcode_Startup()
+; Parameters ....: None
+; Return values .: None
+; Modified ......:
+; ===============================================================================================================================
 Func _netcode_Startup()
 	__Trace_FuncIn("_netcode_Startup")
 	__netcode_Init()
@@ -218,27 +219,19 @@ Func _netcode_Shutdown()
 EndFunc   ;==>_netcode_Shutdown
 
 
-; Give either the parent socket returned from _netcode_TCPListen() if you want all clients of it looped or a single client socket
-; to loop just this one. If you give a parent, the loop will also check if there is a incomming connection to accept and automatically
-; accepts it (but only one per loop call to prevent lag from tcpconnect spam).
-; You can also give socket "000" if you have or expect multiple sockets from _netcode_TCPConnect() but only the clients from 000 will then be managed.
-; There is no "000" socket if not a single socket got returned from _netcode_TCPConnect(), as its just created as a parent for all connect sockets.
-; If all sockets from "000" disconnect, "000" is getting removed and therefore this func will then Return False.
-; This Loop will always return False if the given socket does not exists, but returns True if it exists.
-; The only @error is 1. It means that the Socket is unknown or removed from _netcode duo to a disconnect for example.
-; You can use __netcode_CheckSocket() to check if _netcode knows the socket and what type it is.
-; 0 = unknown, 1 = parent, 2 = client.
-; "if __netcode_CheckSocket(socket) Then _netcode_Loop(socket)" - can help you to prevent a high amount of error logs.
-; _netcode_Loop() is very fast. If not a single client is connected to the parent then the func takes ~0.15 ms.
-; if you have 1000 sockets connected then this func takes around ~1.8 ms. If of course interactions with the sockets happen then the
-; time is going up.
-; Keep in mind that _netcode is designed to provide performance, so it tries to utilize the full thread it is running in.
-; So If your main loop looks like this
-; While _netcode_Loop(socket)
-; WEnd
-; then your cpu is going to be bashed. So if a loop takes 0.15 ms and you have no sleeps then _netcode DllCall's ten thousands of times per second.
-; Please see the xxxxxx example if you only want to bash the cpu if its really needed to and have _netcode chill if nothing is
-; going on or just nothing important.
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_Loop
+; Description ...: Give either the parent or the client socket. Will loop it. That means that data is send, received, processed and executed
+;				   for the specific socket. For parent sockets the function will also Accept a single new incoming connection per loop. If you have multiple
+;				   Client sockets coming from TPCConnect then you can use the socket "000". In that case all TCPConnect sockets get looped
+;				   after another. "000" is invalid if not a single TCPConnect socket is known.
+; Syntax ........: _netcode_Loop(Const $hParent or $hClient)
+; Return values .: True 	= If the Socket is valid. False = If the socket is invalid (also if the socket is disconnected).
+; Errors ........: 1 		= Socket is unknown right from the beginning
+; Modified ......:
+; Remarks .......: _netcode is designed to provide performance. You might want to add Sleep() in your code to lower the CPU usage.
+;				  The amount of time this function takes is depended on how much active sockets _netcode manages. a thousand inactive take a split of a millisecond.
+; ===============================================================================================================================
 Func _netcode_Loop(Const $hListenerSocket)
 	__Trace_FuncIn("_netcode_Loop", $hListenerSocket)
 
@@ -323,10 +316,23 @@ Func _netcode_Loop(Const $hListenerSocket)
 EndFunc   ;==>_netcode_Loop
 
 
-; Recv, Manage and Execute Packets for the given Client Socket. Use this if you dont want to loop all sockets or accept any new connections.
-; $hParentSocket doesnt need to be Set. The Func will read that byitself then.
-; But giving it because you were already working with it anyway, results in that the func then doesnt do it -
-; Performance increase is likely none.
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_RecvManageExecute
+; Description ...: Similiar to _netcode_Loop() but will only receive, process and execute the packets. Is used in various ways within this UDF.
+;				   You cannot give a parent socket as $hSocket.
+; Syntax ........: _netcode_RecvManageExecute(Const $hSocket[, $hParentSocket = False])
+; Parameters ....: $hSocket             - [const] The Socket.
+;                  $hParentSocket       - [optional] The parentsocket of $hSocket
+; Return values .: False 				= if nothing was done by the function
+;				   True 				= if the function received, processed and executed packets (all three)
+; Errors ........: 1 					= The socket given with $hSocket is a parent
+; Extended ......: 1 					= No data was received
+; 				   2 					= The parent socket is set OnHold
+; Modified ......:
+; Remarks .......: $hParentSocket does not need to be set. But giving it because you were already working with it anyway, results in that the func then doesnt read it.
+;					Performance increase is likely none.
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_RecvManageExecute(Const $hSocket, $hParentSocket = False)
 	__Trace_FuncIn("_netcode_RecvManageExecute", $hSocket, $hParentSocket)
 	If _storageS_Read($hSocket, '_netcode_SocketIsListener') Then Return SetError(1, 0, False)
@@ -356,10 +362,19 @@ Func _netcode_RecvManageExecute(Const $hSocket, $hParentSocket = False)
 	Return __Trace_FuncOut("_netcode_RecvManageExecute", True)
 EndFunc   ;==>_netcode_RecvManageExecute
 
-; set $bForce = True if you want to disconnect sockets that are not bind to _netcode. However the function will throw errors saying that it
-; doesnt know the socket.
-; ~ todo add disconnect quos. A socket wont be disconnect until everything thats in the buffer of it is processed and executed $bForce will overwrite that then.
-; if the socket is set OnHold then _netcode will based on a option instantly disconnect or not (but will throw a error).
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_TCPDisconnect
+; Description ...: Will close the given socket and will remove it from _netcode. The "disconnected" Event will be called with it.
+; Syntax ........: _netcode_TCPDisconnect(Const $hSocket[, $bForce = False])
+; Parameters ....: $hSocket             - [const] The socket.
+;                  $bForce              - [optional] Set to True if the given Socket is unknown to _netcode.
+; Return values .: True 				= Success - False = Failed
+; Modified ......:
+; Remarks .......: Unfinished function. _netcode is supposed to become a disconnect quo. This feature is supposed to become usefull to make sure
+;				   that the other side actually got the last send data.
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_TCPDisconnect(Const $hSocket, $bForce = False)
 	__Trace_FuncIn("_netcode_TCPDisconnect", $hSocket)
 	Local $nSocketIs = __netcode_CheckSocket($hSocket)
@@ -381,15 +396,26 @@ Func _netcode_TCPDisconnect(Const $hSocket, $bForce = False)
 	Return __Trace_FuncOut("_netcode_TCPDisconnect", True)
 EndFunc   ;==>_netcode_TCPDisconnect
 
-; $sPort = Local Port to open up
-; $sIP = set a single IP that is allowed to connect from (0.0.0.0 allows for all). If you want to allow a set IP list then use xxxxxxxxx
-; $nMaxPendingConnections = max not yet accepted incomming connections (handled by windows)
-;							so if, lets say, _netcode can accept 5000 incomming connections per second but 6000 come in per second
-;							then 1000 will be rejected by windows. Can also be used as a counter measure to protect from DDOS and Spam
-; $nMaxConnections = How many Connections the listener should a maximum allow. So if 200 sockets are currently connected then the next will be rejected
-;					until the socket amount got below $nMaxConnections.
-; $bDoNotAddSocket = If True then this function will not Bind the new Socket to _netcode and will therefore not be managed until bind to it with
-;					_netcode_BindSocket()
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_TCPListen
+; Description ...: Creates a parent socket with a set amount of maximum clients
+; Syntax ........: _netcode_TCPListen($sPort[, $sIP = '0.0.0.0'[, $nMaxPendingConnections = Default[, $nMaxConnections = 200[,
+;                  $bDoNotAddSocket = False]]]])
+; Parameters ....: $sPort               - The port to listen too. Can be Int, Number, Double, String.
+;                  $sIP                 - [optional] If you want to limit where incomming connections originate from then set this to anything but '0.0.0.0'.
+;				   						IPv4 only at the moment.
+;                  $nMaxPendingConnections- [optional] Ignore this parameter for now.
+;                  $nMaxConnections     - [optional] The maximum amount of Clients this parent is allowed to manage per time.
+;				  						  All further incoming connections are disconnected until a spot is free again.
+;                  $bDoNotAddSocket     - [optional] Set to True if you do not want _netcode to manage the created listener. _netcode will not know of it
+;				   						until you bind it with _netcode_BindSocket().
+; Return values .: True					= A socket handle - False = Creating the Parent failed
+; Errors ........: 1 					= Could not startup a listener. Port taken? _netcode_Startup() called before?
+; Modified ......:
+; Remarks .......: The socket created with this Function will be set to be non blocking and the naggle algorhytm will be disabled.
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_TCPListen($sPort, $sIP = '0.0.0.0', $nMaxPendingConnections = Default, $nMaxConnections = 200, $bDoNotAddSocket = False)
 	__Trace_FuncIn("_netcode_TCPListen", $sPort, $sIP, $nMaxPendingConnections, $nMaxConnections, $bDoNotAddSocket)
 
@@ -406,15 +432,25 @@ Func _netcode_TCPListen($sPort, $sIP = '0.0.0.0', $nMaxPendingConnections = Defa
 	Return __Trace_FuncOut("_netcode_TCPListen", $hListenerSocket)
 EndFunc   ;==>_netcode_TCPListen
 
-; $sIP = IP to connect to
-; $sPort = Port to connect to
-; $bDontAuthAsNetcode = set True if you want to skip the staging process in this func. Usefull for _netcode_Router UDF or certain differently managed services.
-;						You can do that later with _netcode_AuthToNetcodeServer().
-; $sUsername = if the Server requires a UserLogin duo to _netcode_SocketSetUserManagement() then a Username is required
-; $sPassword = Password for the User. Dont hash the Password, the server hashes and checks it. If you do however give a hashed pw then THIS will be
-;			the password that the server then hashes by itself.
-; $arKeyPairs = (Unfinished, dont use) Pre Shared RSA keys. If the Server overall or the specific User requires a pre shared RSA key then these must go here.
-;				Otherwise the Staging process will fail and the Client will be rejected.
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_TCPConnect
+; Description ...: Tries to connect to the given ip and port. Will also login if a username and password is given.
+; Syntax ........: _netcode_TCPConnect($sIP, $sPort[, $bDontAuthAsNetcode = False[, $sUsername = ""[, $sPassword = ""[,
+;                  $arKeyPairs = False]]]])
+; Parameters ....: $sIP                 - IP to connect to
+;                  $sPort               - Port to connect to
+;                  $bDontAuthAsNetcode  - [optional] Set to True if you want to call _netcode_AuthToNetcodeServer() yourself.
+;                  $sUsername           - [optional] Username if Server requires that
+;                  $sPassword           - [optional] Plain text Password if Server requires that
+;                  $arKeyPairs          - [optional] Ignore this parameter
+; Return values .: A socket handle		= If the function succeded
+; 				   False				= If the server cannot be reached, the login failed or anything within the staging process.
+; Errors ........: See MSDN and _netcode_AuthToNetcodeServer() for the error codes.
+; Modified ......:
+; Remarks .......: The Function call is blocking. The socket created however is set to be non blocking and the naggle algorhytm will be disabled.
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_TCPConnect($sIP, $sPort, $bDontAuthAsNetcode = False, $sUsername = "", $sPassword = "", $arKeyPairs = False)
 	__Trace_FuncIn("_netcode_TCPConnect", $sIP, $sPort, $bDontAuthAsNetcode, $sUsername, "$sPassword", "$arKeyPairs")
 
@@ -444,9 +480,36 @@ Func _netcode_TCPConnect($sIP, $sPort, $bDontAuthAsNetcode = False, $sUsername =
 	Return __Trace_FuncOut("_netcode_TCPConnect", $hSocket)
 EndFunc   ;==>_netcode_TCPConnect
 
-; dont hash the password.
+
 ; ~ todo add PacketENDStrings to verify the packet. The incomplete packet buffer should be limited to nothing more then like 4096 bytes.
 ; marked for recoding
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_AuthToNetcodeServer
+; Description ...: Does the Staging
+; Syntax ........: _netcode_AuthToNetcodeServer(Const $hSocket[, $sUsername = ""[, $sPassword = ""[, $arKeyPairs = False]]])
+; Parameters ....: $hSocket             - [const] The socket.
+;                  $sUsername           - [optional] Username if Server requires that
+;                  $sPassword           - [optional] Plain text Password if Server requires that
+;                  $arKeyPairs          - [optional] Ignore this parameter
+; Return values .: True					= If the Staging was a success
+;				   False				= If not
+; Errors and Extended (Err - Ext)
+; ...............: 1 - 0				= Disconnected in the Auth Stage
+; ...............: 2 - 0				= Server didnt auth as expected
+; ...............: 3 - 0				= Disconnected in the Handshake Stage
+; ...............: 4 - 0				= Could not Decrypt RSA data
+; ...............: 5 - 0				= Disconnected in the User Stage
+; ...............: 5 - 1				= Wrong Credentials
+; ...............: 5 - 2				= Account is set OnHold
+; ...............: 5 - 3				= Account is banned
+; ...............: 5 - 4				= Unknown Error
+; ...............: 6 - 0				= Disconnected in the PreSyn Stage
+; ...............: 7 - 0				= Could not Decrypt PreSyn data
+; Modified ......:
+; Remarks .......: Duo to the missing Disconnect Quo, most often this function wont return the right extended information for the User Stage.
+; ...............: So you will most likely end up with @extended 4 and cant tell if the credentials where wrong or if the user is banned etc.
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = "", $arKeyPairs = False)
 	__Trace_FuncIn("_netcode_AuthToNetcodeServer", $hSocket, $sUsername, "$sPassword", "$arKeyPairs")
 
@@ -590,6 +653,7 @@ Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = 
 	Return __Trace_FuncOut("_netcode_AuthToNetcodeServer", True)
 EndFunc   ;==>_netcode_AuthToNetcodeServer
 
+; internal
 Func __netcode_PreSyn(Const $hSocket, $sPreSyn, $sData)
 	__Trace_FuncIn("__netcode_PreSyn", $hSocket, $sPreSyn, $sData)
 	Switch $sPreSyn
@@ -618,49 +682,41 @@ Func __netcode_PreSyn(Const $hSocket, $sPreSyn, $sData)
 	__Trace_FuncOut("__netcode_PreSyn")
 EndFunc   ;==>__netcode_PreSyn
 
-#cs
- you need to be aware of one thing. This function only wrapps up the packet, checks if it would exceed the packet buffer of the other side
- and if not adds the packet to the send quo. The packets get send in the loop not here. So you can not do this
- For To
- 	_netcode_TCPSend(socket, event, data)
- Next
- you should use it like so if you want to imidiatly send the packet
- For To
- 	_netcode_TCPSend(socket, event, data)
- 	_netcode_Loop(socket)
- Next
 
- you could force the imidiate sending by using __netcode_SendPacketQuo() in case you dont want to call _netcode_Loop(), but you really shouldnt because it isnt meant like that
- and there are a couple of reasons why it is made like that.
- For To
- 	_netcode_TCPSend(socket, event, data)
-	__netcode_SendPacketQuo()
- Next
-
- One Reason is that the sockets are set to non blocking and therefore the packet sending has to be done differently to make sure we dont mess up.
- Another Reason is that the UDF combines packets before sending. So you can add packets to the quo with $bWaitForFloodPrevention set to False
- (to know when its full) until the buffer is full and then _netcode_Loop() or >= _netcode_GetDefaultPacketContentSize() (or) _netcode_GetDynamicPacketContentSize()
- is reached to send with the right packet size.
-
- do %example% here
-
- @error = 10 means that the packet to be send would, even if the buffer of the other side is empty, would exceed it. Your data needs to be smaller!
-		So if for example the Server or Client accepts a maximum packet size of 4mb but your packet is 4.5 mb in size then the packet would always be rejected by the server or client,
-		no matter how full the buffer is. So instead of quoing the packet this function just returns @error.
-		See _netcode_GetMaxPacketContentSize(), _netcode_GetDefaultPacketContentSize() and _netcode_GetDynamicPacketContentSize() for data sizes.
-		Valid data Sizes are inherited by the Server in the PreSyn stage phase.
-
- if $bWaitForFloodPrevention is True then the function will loop until the other side reported back that it processed the last packets and that therefore the buffer is empty enough
- to recieve this data. If set to False the function will return @error = 1 if the buffer of the other side is to full to accept this packet.
-
- if you, however you do it, force the sending of packets while the buffer of the other side is full, then the other side will simply dismiss the packet. Thats
- because there are overflow protections in place. The Server or Client will simply never accept more data then they can process.
-#ce
 ; marked for recoding
 ; store the specific $__net_nMaxRecvBufferSize to the socket, since having connections to multiple server with different
 ; settings would break the script.
 ; add a Timeout that can be set with _netcode_SetOption() and / or in the parameters $nWaitForFloodPreventionTimeout
 ; add the parameter to disable packet encryption for the given data.
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_TCPSend
+; Description ...: Quos up a packet to be send within _netcode_Loop(). The packet is created within this function and a buffer size check is also done.
+; Syntax ........: _netcode_TCPSend(Const $hSocket, $sEvent[, $sData = ''[, $bWaitForFloodPrevention = True]])
+; Parameters ....: $hSocket             - [const] The socket
+;                  $sEvent              - Eventname (case-sensitive)
+;                  $sData               - [optional] The data you optionally want to send to the event. See _netcode_sParams() for more options.
+;                  $bWaitForFloodPrevention- [optional] See Remarks
+; Return values .: False				= If the packet couldnt be quod
+;				   True					= If the packet was successfully quod
+; Errors ........: 10					= Illegal event used
+;				   11					= The given Data is to large to be ever send
+;                  1					= Flood prevention error. Will be returned if the data couldnt be quod because the buffer is too full
+; Extended ......: 1					= Socket is unknown or the Socket got disconnected
+; Modified ......:
+; Remarks .......: _netcode uses a Buffering system to make sure that neither the server nor the client is sending more data
+;				   then the other side can process. Todo that _netcode does some calculations and will reject data if its to much.
+;				   This feature is called Flood Prevention. If $bWaitForFloodPrevention is set to True then this function will wait
+;                  for the buffer to be empty enough again to quo up the current packet. If its set to False then this function will
+;                  return, without quoing the packet, and will tell you about it. On servers you should set $bWaitForFloodPrevention to False.
+;				   Otherwise slow clients will lag the whole server.
+;                  See _netcode_GetMaxPacketContentSize(), _netcode_GetDefaultPacketContentSize() and _netcode_GetDynamicPacketContentSize() for the right data sizes.
+;
+;				   Again. This function does not Send data. It quos it up. The packets are send once you call _netcode_Loop() the next time.
+;				   There are two reasons why this is done. First of all _netcode combines packets, sending a single is just faster then sending multiple.
+;				   Second, all sockets are set to be non blocking. So managing alot of Sockets is much more efficient and a single slow socket cant anymore
+;				   slow down all other or the whole script.
+; Example .......: .\examples\TCPSend ~ todo note: Should exactly show how to use _netcode_TCPSend on a server for maximum performance
+; ===============================================================================================================================
 Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPrevention = True)
 	__Trace_FuncIn("_netcode_TCPSend", $hSocket, $sEvent, "$sData", $bWaitForFloodPrevention)
 
@@ -683,7 +739,7 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 	Local $nLen = StringLen($sPackage)
 
 	; check package size
-	If $nLen > $__net_nMaxRecvBufferSize Then Return SetError(10, 0, __Trace_FuncOut("_netcode_TCPSend", False)) ; this packet is to big to ever get send
+	If $nLen > $__net_nMaxRecvBufferSize Then Return SetError(11, 0, __Trace_FuncOut("_netcode_TCPSend", False)) ; this packet is to big to ever get send
 
 	; check for flood error in the packet creation phase
 	if $nError Then
@@ -754,6 +810,19 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 
 EndFunc   ;==>_netcode_TCPSend
 
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_TCPSendRaw
+; Description ...: DO NOT USE. Socket linking is unsafe and experimental.
+; Syntax ........: _netcode_TCPSendRaw(Const $hSocket, $sData[, $nLinkID = False])
+; Parameters ....: $hSocket             - [const] a handle value.
+;                  $sData               - a string value.
+;                  $nLinkID             - [optional] a general number value. Default is False.
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_TCPSendRaw(Const $hSocket, $sData, $nLinkID = False)
 	__Trace_FuncIn("_netcode_TCPSendRaw")
 
@@ -771,10 +840,35 @@ Func _netcode_TCPSendRaw(Const $hSocket, $sData, $nLinkID = False)
 	__Trace_FuncOut("_netcode_TCPSendRaw", True)
 EndFunc
 
+
+; both functions should be made in a way that they help in the efficient use of _netcode_TCPSend() ..Raw() for servers.
+Func _netcode_SendHelper(Const $hSocket)
+	; ~ todo
+EndFunc
+
+Func _netcode_SetSendHelper(Const $hSocket, $sData)
+	; ~ todo
+EndFunc
+
+
 ; give parent socket
 ; marked for recoding
 ; note - make it so that besides a single parent an array of parents and or clients can be given
-Func _netcode_TCPBroadcast(Const $hSocket, $sEvent, $sData, $bWaitForFloodPrevention = True)
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_TCPBroadcast
+; Description ...: Broadcasts data for the event to all clients of the given parent
+; Syntax ........: _netcode_TCPBroadcast(Const $hSocket, $sEvent, $sData[, $bWaitForFloodPrevention = True])
+; Parameters ....: $hSocket             - [const] The parent socket
+;                  $sEvent              - Eventname (case-sensitive)
+;                  $sData               - [optional] data given to the event
+;                  $bWaitForFloodPrevention- [optional] See _netcode_TCPSend()
+; Return values .: None
+; Errors ........: 1					= The given socket is not a parent
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
+Func _netcode_TCPBroadcast(Const $hSocket, $sEvent, $sData = "", $bWaitForFloodPrevention = True)
 	__Trace_FuncIn("_netcode_TCPBroadcast", $hSocket, $sEvent, $bWaitForFloodPrevention)
 
 	If __netcode_CheckSocket($hSocket) <> 1 Then
@@ -789,8 +883,18 @@ Func _netcode_TCPBroadcast(Const $hSocket, $sEvent, $sData, $bWaitForFloodPreven
 	__Trace_FuncOut("_netcode_TCPBroadcast")
 EndFunc   ;==>_netcode_TCPBroadcast
 
-; get the bytes send per second in bytes ($nMode = 0), kilobytes (1) or megabytes (2).
-; The given socket can be a client socket or a parent socket. If a parent is given then the bytes per second of all its clients is added together and returned.
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SocketGetSendBytesPerSecond
+; Description ...: Will return the send bytes per second for the given parent or client socket in b, kb or mb round to 2 decimals.
+; Syntax ........: _netcode_SocketGetSendBytesPerSecond(Const $hSocket[, $nMode = 0])
+; Parameters ....: $hSocket             - [const] The parent or client socket
+;                  $nMode               - [optional] 0 = bytes - 1 = kilobytes - 2 = megabytes
+; Return values .: Bytes per second
+; Modified ......:
+; Remarks .......: If a parent socket is given then the function will read the bps for each client and adds them together.
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_SocketGetSendBytesPerSecond(Const $hSocket, $nMode = 0)
 	__Trace_FuncIn("_netcode_SocketGetSendBytesPerSecond")
 
@@ -810,8 +914,18 @@ Func _netcode_SocketGetSendBytesPerSecond(Const $hSocket, $nMode = 0)
 	Return $nBytesPerSecond
 EndFunc
 
-; get the bytes received per second in bytes ($nMode = 0), kilobytes (1) or megabytes (2).
-; The given socket can be a client socket or a parent socket. If a parent is given then the bytes per second of all its clients is added together and returned.
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SocketGetRecvBytesPerSecond
+; Description ...: Will return the received bytes per second for the given parent or client socket in b, kb or mb round to 2 decimals.
+; Syntax ........: _netcode_SocketGetRecvBytesPerSecond(Const $hSocket[, $nMode = 0])
+; Parameters ....: $hSocket             - [const] The parent or client socket
+;                  $nMode               - [optional] 0 = bytes - 1 = kilobytes - 2 = megabytes
+; Return values .: Bytes per second
+; Modified ......:
+; Remarks .......: If a parent socket is given then the function will read the bps for each client and adds them together.
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_SocketGetRecvBytesPerSecond(Const $hSocket, $nMode = 0)
 	__Trace_FuncIn("_netcode_SocketGetRecvBytesPerSecond")
 
@@ -831,6 +945,17 @@ Func _netcode_SocketGetRecvBytesPerSecond(Const $hSocket, $nMode = 0)
 	Return $nBytesPerSecond
 EndFunc
 
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SocketGetSendPacketPerSecond
+; Description ...: Will return the send packets per second for the given parent or client socket
+; Syntax ........: _netcode_SocketGetSendPacketPerSecond(Const $hSocket)
+; Parameters ....: $hSocket             - [const] The parent or client socket
+; Return values .: Packets per second
+; Modified ......:
+; Remarks .......: If a parent socket is given then the function will read the pps for each client and adds them together.
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_SocketGetSendPacketPerSecond(Const $hSocket)
 	__Trace_FuncIn("_netcode_SocketGetSendPacketPerSecond")
 	Local $nCount = 0
@@ -850,6 +975,17 @@ Func _netcode_SocketGetSendPacketPerSecond(Const $hSocket)
 	Return $nCount
 EndFunc
 
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SocketGetRecvPacketPerSecond
+; Description ...: Will return the received packets per second for the given parent or client socket
+; Syntax ........: _netcode_SocketGetRecvPacketPerSecond(Const $hSocket)
+; Parameters ....: $hSocket             - [const] The parent or client socket
+; Return values .: Packets per second
+; Modified ......:
+; Remarks .......: If a parent socket is given then the function will read the pps for each client and adds them together.
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_SocketGetRecvPacketPerSecond(Const $hSocket)
 	__Trace_FuncIn("_netcode_SocketGetRecvPacketPerSecond")
 	Local $nCount = 0
@@ -900,6 +1036,19 @@ EndFunc
  be aware this feature is either being removed (unlikely), exported or rewritten, because as of yet i am not sure about the
  design and safety of this feature.
 #ce
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SetupSocketLink
+; Description ...: DO NOT USE. Unsafe and highly experimental.
+; Syntax ........: _netcode_SetupSocketLink(Const $hSocket, $sCallback[, $nLinkID = Default[, $vAdditionalData = False]])
+; Parameters ....: $hSocket             - [const] a handle value.
+;                  $sCallback           - a string value.
+;                  $nLinkID             - [optional] a general number value. Default is Default.
+;                  $vAdditionalData     - [optional] a variant value. Default is False.
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_SetupSocketLink(Const $hSocket, $sCallback, $nLinkID = Default, $vAdditionalData = False)
 	__Trace_FuncIn("_netcode_SetupSocketLink")
 
@@ -924,12 +1073,26 @@ Func _netcode_SetupSocketLink(Const $hSocket, $sCallback, $nLinkID = Default, $v
 	Return __Trace_FuncOut("_netcode_SetupSocketLink", $nLinkID)
 EndFunc
 
+
 #cs
 Func _netcode_StopSocketLink(Const $hSocket, $nLinkID)
 	; unlink, remove socketlink event and disconnect linked socket
 EndFunc
 #ce
 
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SocketLinkSetAdditionalData
+; Description ...: DO NOT USE. Unsafe and highly experimental.
+; Syntax ........: _netcode_SocketLinkSetAdditionalData(Const $hSocket, $nLinkID, $vAdditionalData)
+; Parameters ....: $hSocket             - [const] a handle value.
+;                  $nLinkID             - a general number value.
+;                  $vAdditionalData     - a variant value.
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_SocketLinkSetAdditionalData(Const $hSocket, $nLinkID, $vAdditionalData)
 	__Trace_FuncIn("_netcode_SocketLinkSetAdditionalData")
 
@@ -947,6 +1110,18 @@ Func _netcode_SocketLinkSetAdditionalData(Const $hSocket, $nLinkID, $vAdditional
 	__Trace_FuncOut("_netcode_SocketLinkSetAdditionalData")
 EndFunc
 
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SocketLinkGetAdditionalData
+; Description ...: DO NOT USE. Unsafe and highly experimental.
+; Syntax ........: _netcode_SocketLinkGetAdditionalData(Const $hSocket[, $nLinkID = False])
+; Parameters ....: $hSocket             - [const] a handle value.
+;                  $nLinkID             - [optional] a general number value. Default is False.
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_SocketLinkGetAdditionalData(Const $hSocket, $nLinkID = False)
 	__Trace_FuncIn("_netcode_SocketLinkGetAdditionalData")
 	__Trace_FuncOut("_netcode_SocketLinkGetAdditionalData")
@@ -957,12 +1132,39 @@ Func _netcode_SocketLinkGetAdditionalData(Const $hSocket, $nLinkID = False)
 	EndIf
 EndFunc
 
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_CheckLink
+; Description ...: DO NOT USE. Unsafe and highly experimental.
+; Syntax ........: _netcode_CheckLink(Const $hSocket[, $nLinkID = False])
+; Parameters ....: $hSocket             - [const] a handle value.
+;                  $nLinkID             - [optional] a general number value. Default is False.
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_CheckLink(Const $hSocket, $nLinkID = False)
 	__Trace_FuncIn("_netcode_CheckLink")
 	__Trace_FuncOut("_netcode_CheckLink")
 	Return __netcode_SocketGetLinkedSocket($hSocket, $nLinkID)
 EndFunc
 
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SocketSetManageMode
+; Description ...: Sets the manage mode for the given socket. Both a server and the client need the same manage mode or they
+;				   wont be able to understand each other. You most likely will not use this function in the current state of the UDF.
+; Syntax ........: _netcode_SocketSetManageMode(Const $hSocket[, $sMode = Default])
+; Parameters ....: $hSocket             - [const] The Socket
+;                  $sMode               - [optional]
+; Return values .: True					= Success
+;				   False				= Failed
+; Errors ........: 1					= Invalid Manage Mode
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_SocketSetManageMode(Const $hSocket, $sMode = Default)
 	__Trace_FuncIn("_netcode_SocketSetManageMode")
 
@@ -989,20 +1191,49 @@ Func _netcode_SocketSetManageMode(Const $hSocket, $sMode = Default)
 	Return __Trace_FuncOut("_netcode_SocketSetManageMode", True)
 EndFunc
 
-; $__net_sPacketBegin & $__net_sPacketInternalSplit * 3 & $__net_sPacketEnd & 32 for Hash & Event Len
+
+; marked for recoding.
+; Requires the socket to know the maximum packet size ! The packet string lens however are always exactly the same, no matter the seed.
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_GetMaxPacketContentSize
+; Description ...: Will return the maximum data size the socket buffer accepts for the given socket.
+; Syntax ........: _netcode_GetMaxPacketContentSize([$sEvent = ""[, $nMarge = 0.9]])
+; Parameters ....: $sEvent              - [optional] Eventname
+;                  $nMarge              - [optional] Safety marge
+; Return values .: None
+; Modified ......:
+; Remarks .......: If your data is bigger then this then _netcode_TCPSend() most likely will reject the quoing.
+;                  If you, however you do it, force the sending of to large data then the receiver will simply reject it in the end.
+;                  So keep the data that you send within these limits. Keep in mind that each client inherits the settings from the server.
+; Example .......: FileRead($handle), _netcode_GetMaxPacketContentSize("event"))
+; ===============================================================================================================================
 Func _netcode_GetMaxPacketContentSize($sEvent = "", $nMarge = 0.9)
 	__Trace_FuncIn("_netcode_GetMaxPacketContentSize", $sEvent, $nMarge)
 	__Trace_FuncOut("_netcode_GetMaxPacketContentSize")
 	Return Int(($__net_nMaxRecvBufferSize - (StringLen($__net_sPacketBegin) + StringLen($__net_sPacketEnd) + (StringLen($__net_sPacketInternalSplit) * 3) + 32 + StringLen($sEvent))) * $nMarge)
 EndFunc   ;==>_netcode_GetMaxPacketContentSize
 
+
+; marked for recoding.
+; Requires the socket to know the maximum packet size ! The packet string lens however are always exactly the same, no matter the seed.
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_GetDefaultPacketContentSize
+; Description ...: Will return the default data size, inherited by the server, for the given socket.
+; Syntax ........: _netcode_GetDefaultPacketContentSize([$sEvent = ""])
+; Parameters ....: $sEvent              - [optional] Eventname
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: FileRead($handle), _netcode_GetDefaultPacketContentSize("event"))
+; ===============================================================================================================================
 Func _netcode_GetDefaultPacketContentSize($sEvent = "")
 	__Trace_FuncIn("_netcode_GetDefaultPacketContentSize", $sEvent)
 	__Trace_FuncOut("_netcode_GetDefaultPacketContentSize")
 	Return Int(($__net_nDefaultRecvLen - (StringLen($__net_sPacketBegin) + StringLen($__net_sPacketEnd) + (StringLen($__net_sPacketInternalSplit) * 3) + 32 + StringLen($sEvent))))
 EndFunc   ;==>_netcode_GetDefaultPacketContentSize
 
-#cs
+
+#cs DO NOT USE. SIMPLY INEFFICIENT AT THE MOMENT.
 ; _netcode will try to figure out by itself which packet size is working best to send data as fast a possible.
 ; here we basically measure the bytes per second of the given client socket and rise / lower the size to check what increases performance.
 ; thats why on the first call this function wont return the best result. It will start from the $__net_nDefaultRecvLen.
@@ -1080,6 +1311,31 @@ EndFunc   ;==>_netcode_GetDynamicPacketContentSize
 #ce
 
 
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_UseNonCallbackEvent
+; Description ...: Will TCPSend data to the given remote event of the given socket and then await an answer on the given local non Callback event.
+; Syntax ........: _netcode_UseNonCallbackEvent(Const $hSocket, $sMyEvent, $sSendEvent[, $sData = ""[, $nTimeout = 10000]])
+; Parameters ....: $hSocket             - [const] The socket
+;                  $sMyEvent            - Local non Callback event
+;                  $sSendEvent          - Remote event
+;                  $sData               - [optional] Extra Data to be send
+;                  $nTimeout            - [optional] Maximum Time to wait for an answer
+; Return values .: 1D Array with n elements
+;                  [0] = "CallArgArray" <-- Always
+;                  [1] = Socket handle  <-- Always
+;                  [2] = param 1        <-- if the other side returned data
+;                  [n] = param n        <-- each and every param element can be of any VarType
+;				   False				= When the Socket disconnected or the request Timeouted.
+;
+; Errors ........: 1					= The socket disconnected
+;				   2					= Timeout
+; Modified ......:
+; Remarks .......: For the usage of local non callback events only. Imagine the usage of a Function where you expect an return.
+;                  Thats what non callback events are for. To get a fast and easy return from the other side. Simple as that.
+;				   Non Callback events are compatible with _netcode_sParams() and _netcode_exParams().
+;                  Thats why an Array is returned instead of the raw data.
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_UseNonCallbackEvent(Const $hSocket, $sMyEvent, $sSendEvent, $sData = "", $nTimeout = 10000) ; 10 sec default timeout
 
 	; resetting eventdata in case there is something stored that got returned from a previous failed call
@@ -1087,6 +1343,9 @@ Func _netcode_UseNonCallbackEvent(Const $hSocket, $sMyEvent, $sSendEvent, $sData
 
 	; sending request
 	_netcode_TCPSend($hSocket, $sSendEvent, $sData)
+
+	; check for TCPSend error
+	; ~ todo
 
 
 	Local $arEventData = ""
@@ -1108,6 +1367,24 @@ Func _netcode_UseNonCallbackEvent(Const $hSocket, $sMyEvent, $sSendEvent, $sData
 	Return $arEventData
 EndFunc
 
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_GetEventData
+; Description ...: Returns and Resets the current saved Non Callback event data.
+; Syntax ........: _netcode_GetEventData(Const $hSocket, $sName)
+; Parameters ....: $hSocket             - [const] The socket
+;                  $sName               - Eventname
+; Return values .: 1D Array with n elements
+;                  [0] = "CallArgArray" <-- Always
+;                  [1] = Socket handle  <-- Always
+;                  [2] = param 1        <-- if the other side returned data
+;                  [n] = param n        <-- each and every param element can be of any VarType
+;                  ""					= Empty String if no data is stored.
+; Modified ......:
+; Remarks .......: Similiar to _netcode_UseNonCallbackEvent(). But usefull if you do not want to hang up the execution of the script
+;                  while waiting for the Answer. This function however does no TCPSend.
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_GetEventData(Const $hSocket, $sName)
 	Local $sData = _storageS_Read($hSocket, '_netcode_Event' & StringToBinary($sName) & '_Data')
 	_storageS_Overwrite($hSocket, '_netcode_Event' & StringToBinary($sName) & '_Data', "")
@@ -1115,11 +1392,29 @@ Func _netcode_GetEventData(Const $hSocket, $sName)
 	Return $sData
 EndFunc
 
-; if you set a event for a parent then all NEW client sockets will get this event atttached.
-; if you set a event for a client then only this client will have that event.
-; if you use it with a parent then be aware that this func does not update the events on the existing client sockets. See _netcode_SetEventOnAllWithParent() for that
+
 ; note for me: the array used here has only the usage to be able to retrieve all existing events in case the user needs to know them, there is no other usage for the array.
-Func _netcode_SetEvent(Const $hSocket, $sName, $sCallback, $bSet = True)
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SetEvent
+; Description ...: Sets or Unsets Non- and Callback Events for the given sockets.
+; Syntax ........: _netcode_SetEvent(Const $hSocket, $sName, $sCallback[, $bSet = True])
+; Parameters ....: $hSocket             - [const] Parent or Client socket
+;                  $sName               - Eventname (case-sensitive)
+;                  $sCallback           - [optional] Callback function name
+;                  $bSet                - [optional] True = Set - False = Unset
+; Return values .: True					= Success
+;				   False				= Failed
+; Errors ........: 1					= 000 Socket is invalid
+;				   2					= Unknown Socket
+;				   3					= Event is already set
+;				   4					= Event does not exist
+; Modified ......:
+; Remarks .......: If you set an Event to a parent, then each NEW client of it will inherit this event then.
+;                  If you set an Event to a client, then only this specific client will have it.
+;                  _netcode supports up to 16 params for Callback functions.
+; Example .......: No
+; ===============================================================================================================================
+Func _netcode_SetEvent(Const $hSocket, $sName, $sCallback = "", $bSet = True)
 	__Trace_FuncIn("_netcode_SetEvent", $hSocket, $sName, $sCallback, $bSet)
 
 	If $hSocket == '000' Then
@@ -1186,12 +1481,26 @@ Func _netcode_SetEvent(Const $hSocket, $sName, $sCallback, $bSet = True)
 	EndIf
 EndFunc   ;==>_netcode_SetEvent
 
+
+; marked for recoding
 ; ~ todo
 ; this function returns an 2D array from those sockets it has changed this event on.
 ; if the same array would be used in $hSocket this func would revert the changes to what was before.
 ; 2D
 ; [x][0] = Socket
 ; [0][x] = What was will be
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SetEventOnAll
+; Description ...: DO NOT USE
+; Syntax ........: _netcode_SetEventOnAll($sName, $sCallback[, $bSet = True])
+; Parameters ....: $sName               - a string value.
+;                  $sCallback           - a string value.
+;                  $bSet                - [optional] a boolean value. Default is True.
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_SetEventOnAll($sName, $sCallback, $bSet = True)
 	__Trace_FuncIn("_netcode_SetEventOnAll", $sName, $sCallback, $bSet)
 
@@ -1204,6 +1513,21 @@ Func _netcode_SetEventOnAll($sName, $sCallback, $bSet = True)
 	__Trace_FuncOut("_netcode_SetEventOnAll")
 EndFunc   ;==>_netcode_SetEventOnAll
 
+
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SetEventOnAllWithParent
+; Description ...: DO NOT USE
+; Syntax ........: _netcode_SetEventOnAllWithParent(Const $hSocket, $sName, $sCallback[, $bSet = True])
+; Parameters ....: $hSocket             - [const] a handle value.
+;                  $sName               - a string value.
+;                  $sCallback           - a string value.
+;                  $bSet                - [optional] a boolean value. Default is True.
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_SetEventOnAllWithParent(Const $hSocket, $sName, $sCallback, $bSet = True)
 	__Trace_FuncIn("_netcode_SetEventOnAllWithParent", $hSocket, $sName, $sCallback, $bSet)
 	If Not _storageS_Read($hSocket, '_netcode_SocketIsListener') Then
@@ -1243,11 +1567,26 @@ Func _netcode_GetEventsAllByParent(Const $hSocket)
 EndFunc   ;==>_netcode_GetEventsAllByParent
 #ce
 
-; Presetting events for all new incoming connections no matter the listener and if it already exist.
-; All events set here are Default. Default events are 'connection', 'disconnected', 'flood', 'banned' etc.
-; Defaults events are not linked to the other socket specific events.
-; You could also set for example a 'connection' event with _netcode_SetEvent() on each or one client socket and it would be prioritized over the default event.
-; if you want to overwrite a default event then just call this, you dont need to set it to false first.
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_PresetEvent
+; Description ...: Sets Default Events.
+; Syntax ........: _netcode_PresetEvent($sName, $sCallback[, $bSet = True])
+; Parameters ....: $sName               - Eventname
+;                  $sCallback           - Callback function name
+;                  $bSet                - [optional] True = Set - False = Unset
+; Return values .: True					= Success
+;				   False				= Failed
+; Errors ........: 2					= Event does not exist
+; Modified ......:
+; Remarks .......: Standard default events are 'connection', 'disconnected', 'flood' and 'netcode_internal'.
+;                  You can overwrite these in favor for your own.
+;                  Default events cannot be Non Callback events !
+;				   If a Default Event is present then each parent after this call can use them.
+;                  If a Socket specfic Event is set for a socket then the socket specific event is preffered over the default.
+;                  _netcode just checks for socket specific events first and then for default events.
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_PresetEvent($sName, $sCallback, $bSet = True)
 	__Trace_FuncIn("_netcode_PresetEvent", $sName, $sCallback, $bSet)
 
@@ -1293,6 +1632,8 @@ Func _netcode_PresetEvent($sName, $sCallback, $bSet = True)
 	EndIf
 EndFunc   ;==>_netcode_PresetEvent
 
+
+#cs
 ; if the user wants to have specific events for all new clients of only one of his listeners
 ; setting an event here will not set them on each active connected client. The event will just be set on each NEW client.
 ; for setting Events on all active Sockets use _netcode_SetEventOnAllWithParent()
@@ -1352,11 +1693,26 @@ Func _netcode_PresetEventWithParent(Const $hSocket, $sName, $sCallback, $bSet = 
 	EndIf
 
 EndFunc   ;==>_netcode_PresetEventWithParent
+#ce
 
+
+; marked for recoding
 ; set a white or blacklist of IP's to a parent Socket.
 ; if you Whitelist just one IP, because you only want one IP to have access then consider using _netcode_TCPListen(port, ->ip<-) instead of this,
 ; because then windows will already deny unwated connections.
 ; if you have a million of ip's consider writing a IP Check application in a faster programming language. Otherwise you will notice lag.
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SetIPList
+; Description ...: DO NOT USE. Not fully implemented
+; Syntax ........: _netcode_SetIPList(Const $hSocket, $arIPList, $bIsWhitelist)
+; Parameters ....: $hSocket             - [const] a handle value.
+;                  $arIPList            - an array of unknowns.
+;                  $bIsWhitelist        - a boolean value.
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_SetIPList(Const $hSocket, $arIPList, $bIsWhitelist)
 	__Trace_FuncIn("_netcode_SetIPList", $hSocket, $arIPList, $bIsWhitelist)
 	If __netcode_CheckSocket($hSocket) <> 1 Then
@@ -1367,11 +1723,23 @@ Func _netcode_SetIPList(Const $hSocket, $arIPList, $bIsWhitelist)
 	__Trace_FuncOut("_netcode_SetIPList")
 EndFunc   ;==>_netcode_SetIPList
 
+
 ; set a global white / blacklist. this will affect all new parent sockets, not the existing.
 ; however not whitelisted or blacklisted IP's will not be disconnected here. Use _netcode_DisconnectClientsByIP() for that.
 ; you basically set this before you setup a listener. The Global IPList then overwrites the parents IPlist. So you could remove IP's from one
 ; specific parent if you like.
 ; The array given needs to be 0 based ([0] = first ip)
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SetGlobalIPList
+; Description ...: DO NOT USE. Not fully implemented
+; Syntax ........: _netcode_SetGlobalIPList($arIPList, $bIsWhitelist)
+; Parameters ....: $arIPList            - an array of unknowns.
+;                  $bIsWhitelist        - a boolean value.
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_SetGlobalIPList($arIPList, $bIsWhitelist)
 	__Trace_FuncIn("_netcode_SetGlobalIPList", $arIPList, $bIsWhitelist)
 	$__net_arGlobalIPList = $arIPList
@@ -1379,22 +1747,58 @@ Func _netcode_SetGlobalIPList($arIPList, $bIsWhitelist)
 	__Trace_FuncOut("_netcode_SetGlobalIPList")
 EndFunc   ;==>_netcode_SetGlobalIPList
 
-; a client socket set OnHold wont execute any packets anymore. It will still recieve and disassemble until the buffer is full.
-; could be usefull to defeat ddos or just to pause a transmission.
+
 ; marked for recoding
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SetSocketOnHold
+; Description ...: Sets the given client or parent socket OnHold
+; Syntax ........: _netcode_SetSocketOnHold(Const $hSocket, $bSet)
+; Parameters ....: $hSocket             - [const] The socket
+;                  $bSet                - True = Set - False = Unset
+; Return values .: None
+; Modified ......:
+; Remarks .......: A client socket set OnHold wont execute any packets anymore. It will still recieve and disassemble until the buffer is full.
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_SetSocketOnHold(Const $hSocket, $bSet)
 	__Trace_FuncIn("_netcode_SetSocketOnHold", $hSocket, $bSet)
 	_storageS_Overwrite($hSocket, '_netcode_SocketExecutionOnHold', $bSet)
 	__Trace_FuncOut("_netcode_SetSocketOnHold")
 EndFunc   ;==>_netcode_SetSocketOnHold
 
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_GetSocketOnHold
+; Description ...: Returns the OnHold status for the given parent or client socket
+; Syntax ........: _netcode_GetSocketOnHold(Const $hSocket)
+; Parameters ....: $hSocket             - [const] The socket
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_GetSocketOnHold(Const $hSocket)
 	__Trace_FuncIn("_netcode_GetSocketOnHold", $hSocket)
 	__Trace_FuncOut("_netcode_GetSocketOnHold")
 	Return _storageS_Read($hSocket, '_netcode_SocketExecutionOnHold')
 EndFunc   ;==>_netcode_GetSocketOnHold
 
-; get the Clients of the given Parent in a array. If $bJustTheCount is True you get the number of clients currently connected to the parent
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_ParentGetClients
+; Description ...: Returns the Client sockets for the given parent in a 1D array or the Amount of Clients the parent has.
+; Syntax ........: _netcode_ParentGetClients(Const $hSocket[, $bJustTheCount = False])
+; Parameters ....: $hSocket             - [const] The parent socket.
+;                  $bJustTheCount       - [optional] False = 1D array containing the Client sockets - True = Integer
+; Return values .: 1D Array
+;				   [0] = Client Socket
+;				   [n] = Client Socket
+;				   Integer				= The amount of clients.
+; Errors ........: 1					= The given Socket is not a parent socket or unknown
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_ParentGetClients(Const $hSocket, $bJustTheCount = False)
 	__Trace_FuncIn("_netcode_ParentGetClients", $hSocket, $bJustTheCount)
 	If __netcode_CheckSocket($hSocket) <> 1 Then
@@ -1409,12 +1813,36 @@ Func _netcode_ParentGetClients(Const $hSocket, $bJustTheCount = False)
 	EndIf
 EndFunc   ;==>_netcode_ParentGetClients
 
-; returns the parent socket of the given client socket
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_ClientGetParent
+; Description ...: Returns the Parent socket of the given Client socket
+; Syntax ........: _netcode_ClientGetParent(Const $hSocket)
+; Parameters ....: $hSocket             - [const] The Client socket
+; Return values .: Parent Socket
+;				   False				= Not a parent socket or unknown
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_ClientGetParent(Const $hSocket)
 	Return __netcode_ClientGetParent($hSocket)
 EndFunc
 
-; returns all known parent sockets managed by _netcode
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_GetParents
+; Description ...: Returns every Parent socket in a 1D Array managed by _netcode
+; Syntax ........: _netcode_GetParents([$bJustTheCount = False])
+; Parameters ....: $bJustTheCount       - [optional] False = 1D Array - True = Integer
+; Return values .: 1D Array
+;				   [0] Parent socket
+;				   [n] Parent socket
+;                  Integer				= Amount of parent sockets
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_GetParents($bJustTheCount = False)
 	if $bJustTheCount Then
 		Return UBound($__net_arSockets)
@@ -1423,11 +1851,43 @@ Func _netcode_GetParents($bJustTheCount = False)
 	EndIf
 EndFunc
 
-; use this function to combine params into one string for when you want to send multiple params to a event. Arrays (also 2D) are supported too.
-; if you have a event Func _event_example($user, $password, $idk) then you can simply use this _netcode_TCPSend(socket, 'example', _netcode_sParams($user, $password, $idk)).
-; if you set $p1, leave $p2 at Default and then set $p3, then this function will only process $p1 as it expects any Default param to be the last.
-; so if you want to set p3 and not p2 then give just any input but Default.
-; ~ todo process and save var types so it returns the correct var types when unpacked.
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_sParams (aka simple params)
+; Description ...: Serializer function usefull for _netcode_TCPSend() for when you want to send multiple params to an event.
+; Syntax ........: _netcode_sParams($p1[, $p2 = Default[, $p3 = Default[, $p4 = Default[, $p5 = Default[, $p6 = Default[,
+;                  $p7 = Default[, $p8 = Default[, $p9 = Default[, $p10 = Default[, $p11 = Default[, $p12 = Default[,
+;                  $p13 = Default[, $p14 = Default[, $p15 = Default[, $p16 = Default]]]]]]]]]]]]]]])
+; Parameters ....: $p1                  - param 1
+;                  $p2                  - [optional] param 2
+;                  $p3                  - [optional] param 3
+;                  $p4                  - [optional] param 4
+;                  $p5                  - [optional] param 5
+;                  $p6                  - [optional] param 6
+;                  $p7                  - [optional] param 7
+;                  $p8                  - [optional] param 8
+;                  $p9                  - [optional] param 9
+;                  $p10                 - [optional] param 10
+;                  $p11                 - [optional] param 11
+;                  $p12                 - [optional] param 12
+;                  $p13                 - [optional] param 13
+;                  $p14                 - [optional] param 14
+;                  $p15                 - [optional] param 15
+;                  $p16                 - [optional] param 16
+; Return values .: String
+; Modified ......:
+; Remarks .......: A "Default" param indicates that the previous param was the last.
+;				   If the Event callback function looks like this:
+;                  Func _Event_MyEvent(Const $hSocket, $param1, $param2)
+;                  Then you can use this function like:
+;                  _netcode_TCPSend($hSocket, "MyEvent", _netcode_sParams($param1, $param2))
+;
+;                  The simple params function also supports arrays (up to 2D of any size).
+;                  However every variable is converted into String. And this String vartype is kept on the receiving end.
+;                  Use _netcode_exParams() if you want to save and restore variable types.
+;                  Simple params is just faster then Extended params.
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_sParams($p1, $p2 = Default, $p3 = Default, $p4 = Default, $p5 = Default, $p6 = Default, $p7 = Default, $p8 = Default, $p9 = Default, $p10 = Default, $p11 = Default, $p12 = Default, $p13 = Default, $p14 = Default, $p15 = Default, $p16 = Default)
 	__Trace_FuncIn("_netcode_sParams")
 ;~ 	Local $arParamStrings = __netcode_SocketGetParamStrings($ socket?
@@ -1465,9 +1925,24 @@ Func _netcode_sParams($p1, $p2 = Default, $p3 = Default, $p4 = Default, $p5 = De
 	EndIf
 EndFunc   ;==>_netcode_sParams
 
+
+Func _netcode_exParams($p1, $p2 = Default, $p3 = Default, $p4 = Default, $p5 = Default, $p6 = Default, $p7 = Default, $p8 = Default, $p9 = Default, $p10 = Default, $p11 = Default, $p12 = Default, $p13 = Default, $p14 = Default, $p15 = Default, $p16 = Default)
+	;  ~ todo
+EndFunc
+
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SocketToIP
+; Description ...: Returns the IP for the given Socket
+; Syntax ........: _netcode_SocketToIP(Const $socket)
+; Parameters ....: $socket              - [const] The socket
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_SocketToIP(Const $socket)
 	__Trace_FuncIn("_netcode_SocketToIP", $socket)
-;~ 	If $__net_hWs2_32 = -1 Then $__net_hWs2_32 = DllOpen('Ws2_32.dll')
 	Local $structName = DllStructCreate("short;ushort;uint;char[8]")
 	Local $sRet = DllCall($__net_hWs2_32, "int", "getpeername", "int", $socket, "ptr", DllStructGetPtr($structName), "int*", DllStructGetSize($structName))
 	If Not @error Then
@@ -1477,6 +1952,17 @@ Func _netcode_SocketToIP(Const $socket)
 	Return __Trace_FuncOut("_netcode_SocketToIP", False)
 EndFunc   ;==>_netcode_SocketToIP
 
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_DisconnectClientsByIP
+; Description ...: Disconnects every Client socket, of every parent, that has the given IP.
+; Syntax ........: _netcode_DisconnectClientsByIP($sIP)
+; Parameters ....: $sIP                 - IP
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_DisconnectClientsByIP($sIP)
 	__Trace_FuncIn("_netcode_DisconnectClientsByIP", $sIP)
 
@@ -1495,13 +1981,27 @@ Func _netcode_DisconnectClientsByIP($sIP)
 	__Trace_FuncOut("_netcode_DisconnectClientsByIP")
 EndFunc   ;==>_netcode_DisconnectClientsByIP
 
-; if you created a socket yourself and you want to add it to _netcode then you can use this.
-; if you created a listener socket aka parent then _netcode_BindSocket(parent socket, False, how much connections the socket should accept at maximum)
-; if you created a socket with TCPAccept aka client yourself then _netcode_BindSocket(client socket, parent socket, False, ip from parent, port from parent, username if used, password if used)
-; if you add a client socket with _netcode_BindSocket(client socket, parent socket) but the parent is yet unknown to _netcode then
-; first add the parent, because you cant add both with a single call.
-; if you created a socket with TCPConnect aka client yourself then _netcode_BindSocket(client socket, "000")
-; if you encounter errors you can view __netcode_AddSocket() for the error describtions.
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_BindSocket
+; Description ...: Binds the given Socket to _netcode. Either as parent or as tcp- accept / connect client of the given parent.
+; Syntax ........: _netcode_BindSocket(Const $hSocket[, $hParentSocket = False[, $nIfListenerMaxConnections = 200[, $sIP = False[,
+;                  $nPort = False[, $sUsername = False[, $sPassword = False]]]]]])
+; Parameters ....: $hSocket             - [const] The parent or client socket
+;                  $hParentSocket       - [optional] The parent socket if $hSocket is a tcp- accept or connect client socket
+;                  $nIfListenerMaxConnections- [optional] if $hSocket is a parent socket then how many clients it at maximum is allowed to have
+;                  $sIP                 - [optional] If $hSocket is a tcp connect client socket then to which ip it is connected
+;                  $nPort               - [optional] If $hSocket is a tcp connect client socket then to which port it is connected
+;                  $sUsername           - [optional] If $hSocket is a tcp connect client socket and if a username is / was required
+;                  $sPassword           - [optional] If $hSocket is a tcp connect client socket and if a password is / was required (plaintext)
+; Return values .: None
+; Modified ......:
+; Remarks .......: In order to Bind a tcp accept socket, the parent needs to be present first. So if the parent is not know to _netcode yet then
+;				   add the parent first. You can also figure the type of a socket by using _netcode_CheckSocket().
+; Example .......: _netcode_BindSocket($hSocket, False)				; how to add a parent socket
+;				   _netcode_BindSocket($hSocket, $hParentSocket)	; how to add a tcp accept client socket (accept sockets originate from TCPAccept)
+;				   _netcode_BindSocket($hSocket, "000")				; how to add a tcp connect client socket (connect sockets originate from TCPConnect)
+; ===============================================================================================================================
 Func _netcode_BindSocket(Const $hSocket, $hParentSocket = False, $nIfListenerMaxConnections = 200, $sIP = False, $nPort = False, $sUsername = False, $sPassword = False)
 	__Trace_FuncIn("_netcode_BindSocket", $hSocket, $hParentSocket, $nIfListenerMaxConnections)
 	Local $bReturn = __netcode_AddSocket($hSocket, $hParentSocket, $nIfListenerMaxConnections, $sIP, $nPort, $sUsername, $sPassword)
@@ -1512,10 +2012,19 @@ Func _netcode_BindSocket(Const $hSocket, $hParentSocket = False, $nIfListenerMax
 	Return SetError($nError, $nExtended, __Trace_FuncOut("_netcode_BindSocket", $bReturn))
 EndFunc   ;==>_netcode_BindSocket
 
-; releasing a socket means that it is being unlinked from this UDF.
-; the socket will no longer being handled by the UDF but not closed.
-; Only if you give a parent socket all client sockets from it get closed.
-; you can use __netcode_ParentGetClients() if you want to Release the clients first.
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_ReleaseSocket
+; Description ...: If you want to release a socket from _netcode's management, but not disconnect it.
+; Syntax ........: _netcode_ReleaseSocket(Const $hSocket)
+; Parameters ....: $hSocket             - [const] The parent or client socket
+; Return values .: None
+; Modified ......:
+; Remarks .......: _netcode will entirely wipe the socket and its data, just like if it disconnected, but without disconnecting it.
+;				   If you want to release a parent socket then release its clients first, otherwise the clients get disconnected.
+;				   _netcode_ParentGetClients() might be of use.
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_ReleaseSocket(Const $hSocket)
 	__Trace_FuncIn("_netcode_ReleaseSocket", $hSocket)
 	Return __Trace_FuncOut("_netcode_ReleaseSocket", __netcode_RemoveSocket($hSocket))
@@ -1527,6 +2036,7 @@ Func _netcode_BanByIP($sIP, $nMode)
 EndFunc   ;==>_netcode_BanByIP
 #ce
 
+#Region DO NOT USE. To be overhauled.
 ; Set the parent to require a user login. All new incoming connections then need to send user and password.
 ; The User Management requires a database.
 ; give parent socket
@@ -1728,19 +2238,40 @@ Func _netcode_ReadUserDB($sfDbPath = @ScriptDir & "\userdb")
 	__Trace_FuncIn("_netcode_ReadUserDB", $sfDbPath)
 	Return __Trace_FuncOut("_netcode_ReadUserDB", __netcode_GetUserDB($sfDbPath))
 EndFunc   ;==>_netcode_ReadUserDB
+#EndRegion DO NOT USE. To be overhauled.
+
 
 ; hashes the given data and returns the hash
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SHA256
+; Description ...: Returns the SHA256 Hash of the given data
+; Syntax ........: _netcode_SHA256($sData)
+; Parameters ....: $sData               - data
+; Return values .: Binary
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_SHA256($sData)
 	__Trace_FuncIn("_netcode_SHA256", "$sData")
 	Return __Trace_FuncOut("_netcode_SHA256", __netcode_CryptSHA256($sData))
 EndFunc   ;==>_netcode_SHA256
 
 
-;~ Func _netcode_SetGlobalEnablePassword($bSet)
-;~ EndFunc
-
 ; unfinished
 ; marked for recoding
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SetOption
+; Description ...: Sets Options to the given parent or client socket. To be Overhauled.
+; Syntax ........: _netcode_SetOption(Const $hSocket, $sOption, $sData)
+; Parameters ....: $hSocket             - [const] The socket
+;                  $sOption             - String option name
+;                  $sData               - Variable option parameter
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_SetOption(Const $hSocket, $sOption, $sData)
 	__Trace_FuncIn("_netcode_SetOption", $hSocket, $sOption, $sData)
 	Switch $sOption
@@ -1790,8 +2321,20 @@ Func _netcode_SetOption(Const $hSocket, $sOption, $sData)
 	Return __Trace_FuncOut("_netcode_SetOption")
 EndFunc   ;==>_netcode_SetOption
 
+
 ; unfinished
 ; marked for recoding
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_PresetOption
+; Description ...: Sets Default Options. To be Overhauled
+; Syntax ........: _netcode_PresetOption($sOption, $sData)
+; Parameters ....: $sOption             - String option name
+;                  $sData               - Variable option parameter
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_PresetOption($sOption, $sData)
 	__Trace_FuncIn("_netcode_PresetOption", $sOption, $sData)
 	Switch $sOption
@@ -1807,8 +2350,20 @@ Func _netcode_PresetOption($sOption, $sData)
 	EndSwitch
 EndFunc   ;==>_netcode_PresetOption
 
+
 ; unfinished
 ; marked for recoding
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SetInternalOption
+; Description ...: Ignore
+; Syntax ........: _netcode_SetInternalOption($sOption, $sData)
+; Parameters ....: $sOption             - a string value.
+;                  $sData               - a string value.
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_SetInternalOption($sOption, $sData)
 
 	Switch $sOption
@@ -1826,6 +2381,9 @@ EndFunc
 
 
 ; Barrier. Internals Below. No Functions are ment to be used individually but some probably can.
+; =============================================================================================================================================
+; =============================================================================================================================================
+; =============================================================================================================================================
 ; =============================================================================================================================================
 
 ; the client must be given
@@ -3298,11 +3856,8 @@ Func __netcode_RecvPackages(Const $hSocket)
 			Return SetError($nError, 1, __Trace_FuncOut("__netcode_RecvPackages", False))
 		EndIf
 
-;~ 		__netcode_SocketSetRecvBytesPerSecond($hSocket, $nBytes)
-
 		$sPackages &= BinaryToString($sTCPRecv) ; old way
 ;~ 		$sPackages &= BinaryToString($sTCPRecv, 4) ; Reverted - Fix from 1.5.10
-;~ 		$sPackages &= StringMid($sTCPRecv, 3) ; inefficient
 
 		; todo ~ check size and if it exceeds the max Recv Buffer Size
 
@@ -3369,7 +3924,7 @@ Func __netcode_SocketSetEvents(Const $hSocket, $arEvents)
 EndFunc   ;==>__netcode_SocketSetEvents
 
 ; Seterror (x, 0, y)
-; x = @error = True / False - if is whitelist or not
+; x = @error = True / False - if whitelist or not
 ; y = Return = Array
 Func __netcode_SocketGetIPList(Const $hSocket)
 	__Trace_FuncIn("__netcode_SocketGetIPList", $hSocket)
@@ -4029,7 +4584,8 @@ Func __netcode_SeedingClientStrings(Const $hSocket, $nSeed)
 EndFunc   ;==>__netcode_SeedingClientStrings
 
 ; marked for recoding
-; needs to generate strings that cant be reverted to the seed. Use hash algorhytms.
+; needs to generate strings that cant be reverted to the seed. Use hash algorhytms or something.
+; ANY CHANGES HERE WILL MAKE THE NEW _netcode VERSIONS UNABLE TO TALK TO PREVIOUS VERSIONS ! <<<<==================<<<<
 Func __netcode_SeedToString($nSeed, $nStringLen, $sSalt = "")
 	__Trace_FuncIn("__netcode_SeedToString", $nSeed, $nStringLen, $sSalt)
 	Local Static $arChars ; 61 chars
@@ -4152,42 +4708,6 @@ Func __netcode_SocketSetSendBytesPerSecond(Const $hSocket, $nBytes)
 	__Trace_FuncOut("__netcode_SocketSetSendBytesPerSecond")
 EndFunc
 
-#cs
-Func __netcode_SocketSetSendBytesPerSecond_Backup(Const $hSocket, $nBytes)
-	__Trace_FuncIn("__netcode_SocketSetSendBytesPerSecond")
-
-	; return if zero bytes because nothing needs to be added
-	if $nBytes = 0 Then Return __Trace_FuncOut("__netcode_SocketSetSendBytesPerSecond")
-
-	; get buffer and the second it belongs too
-	Local $arBuffer = _storageS_Read($hSocket, '_netcode_SendBytesPerSecondArray')
-	if Not IsArray($arBuffer) Then Return __Trace_FuncOut("__netcode_SocketSetSendBytesPerSecond") ; socket gone
-	Local $nCalculatedSecond = _storageS_Read($hSocket, '_netcode_SendBytesPerSecondSecond')
-
-	; if its the next second then
-	if $nCalculatedSecond <> @SEC Then
-
-		; calculate how much bytes per second where send and also clean the buffer
-		Local $nBytesPerSecond = 0
-		For $i = 0 To 999
-			$nBytesPerSecond += $arBuffer[$i]
-			$arBuffer[$i] = 0
-		Next
-
-		; and write said information to the storage
-		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecond', $nBytesPerSecond)
-		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondSecond', @SEC)
-	EndIf
-
-	; add the current send bytes to the array index of the ms it was send
-	$arBuffer[@MSEC] += $nBytes
-
-	; update buffer
-	_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondArray', $arBuffer)
-	__Trace_FuncOut("__netcode_SocketSetSendBytesPerSecond")
-EndFunc
-#ce
-
 ; currently only works for client sockets
 Func __netcode_SocketGetSendBytesPerSecond(Const $hSocket, $nMode = 0)
 	Local $nBytesPerSecond = _storageS_Read($hSocket, '_netcode_SendBytesPerSecond')
@@ -4248,42 +4768,6 @@ Func __netcode_SocketSetRecvBytesPerSecond(Const $hSocket, $nBytes)
 	_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondCount', $nBufferSize)
 	__Trace_FuncOut("__netcode_SocketSetRecvBytesPerSecond")
 EndFunc
-
-#cs
-Func __netcode_SocketSetRecvBytesPerSecond_Backup(Const $hSocket, $nBytes)
-	__Trace_FuncIn("__netcode_SocketSetRecvBytesPerSecond")
-
-	; return if zero bytes because nothing needs to be added
-	if $nBytes = 0 Then Return __Trace_FuncOut("__netcode_SocketSetRecvBytesPerSecond")
-
-	; get buffer and the second it belongs too
-	Local $arBuffer = _storageS_Read($hSocket, '_netcode_RecvBytesPerSecondArray')
-	if Not IsArray($arBuffer) Then Return __Trace_FuncOut("__netcode_SocketSetRecvBytesPerSecond") ; socket gone
-	Local $nCalculatedSecond = _storageS_Read($hSocket, '_netcode_RecvBytesPerSecondSecond')
-
-	; if its the next second then
-	if $nCalculatedSecond <> @SEC Then
-
-		; calculate how much bytes per second where received and also clean the buffer
-		Local $nBytesPerSecond = 0
-		For $i = 0 To 999
-			$nBytesPerSecond += $arBuffer[$i]
-			$arBuffer[$i] = 0
-		Next
-
-		; and write said information to the storage
-		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecond', $nBytesPerSecond)
-		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondSecond', @SEC)
-	EndIf
-
-	; add the current received bytes to the array index of the ms it was received
-	$arBuffer[@MSEC] += $nBytes
-
-	; update buffer
-	_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondArray', $arBuffer)
-	__Trace_FuncOut("__netcode_SocketSetRecvBytesPerSecond")
-EndFunc
-#ce
 
 Func __netcode_SocketGetRecvBytesPerSecond(Const $hSocket, $nMode = 0)
 	Local $nBytesPerSecond = _storageS_Read($hSocket, '_netcode_RecvBytesPerSecond')
@@ -4358,6 +4842,7 @@ EndFunc
 
 ; this functions only sets the var type, it doesnt convert the data
 ; so a String var, ment to be set to Binary, wont be set with StringToBinary() it will just be set with Binary()
+; Setting the vartype to Bool wont work with "false" or "true", only with "False" or "True"
 Func __netcode_SetVarType($vData, $sVarType)
 	__Trace_FuncIn("__netcode_SetVarType", "$vData", $sVarType)
 
@@ -4432,7 +4917,7 @@ Func __netcode_SocketSelect($arClients, $bRead = True)
     DllStructSetData($tTIMEVAL, 1, 0) ; tv_sec
     DllStructSetData($tTIMEVAL, 2, 0) ; tv_usec
 
-	; filling the fd_set dtruct with the client sockets
+	; filling the fd_set struct with the client sockets
 	For $i = 0 To $nArSize - 1
 		DllStructSetData($tFD_SET, "fd_array", $arClients[$i], $i + 1)
 	Next
@@ -5559,55 +6044,6 @@ EndFunc   ;==>__netcode_CryptShutdown
 ; Stripped down CryptoNG UDF by TheXman@autoitscript.com
 #EndRegion ===========================================================================================================================
 
-#cs
-; lznt functions from xxxxxxxxxxxxxxxxxxxxxxxxxx idk know actually
-; marked for recoding
-Func __netcode_lzntdecompress($bbinary)
-	Local $tinput = DllStructCreate("byte[" & BinaryLen($bbinary) & "]")
-	DllStructSetData($tinput, 1, $bbinary)
-
-;~ 	Local $tbuffer = DllStructCreate("byte[" & 0x40000 & "]") ; 0x40000 taken from UEZ - File to Base64 String Code Generator
-	Local $tbuffer = DllStructCreate("byte[" & $__net_nMaxRecvBufferSize & "]") ; since our packets will never exceed this anyway.. could change when i add the big packet feature
-
-	Local $a_call = DllCall($__net_hInt_ntdll, "int", "RtlDecompressBuffer", "ushort", 2, "ptr", DllStructGetPtr($tbuffer), "dword", DllStructGetSize($tbuffer), "ptr", DllStructGetPtr($tinput), "dword", DllStructGetSize($tinput), "dword*", 0)
-	If @error OR $a_call[0] Then
-		Return SetError(1, 0, "")
-	EndIf
-
-	Return Binary(BinaryToString(BinaryMid(DllStructGetData($tbuffer, 1), 1, $a_call[6])))
-
-;~ 	Local $toutput = DllStructCreate("byte[" & $a_call[6] & "]", DllStructGetPtr($tbuffer))
-;~ 	Return SetError(0, 0, Binary(BinaryToString(DllStructGetData($toutput, 1))))
-EndFunc
-
-Func __netcode_lzntcompress($vinput, $icompressionformatandengine = 2)
-	If NOT ($icompressionformatandengine = 258) Then
-		$icompressionformatandengine = 2
-	EndIf
-
-	Local $tinput = DllStructCreate("byte[" & BinaryLen($vinput) & "]")
-	DllStructSetData($tinput, 1, $vinput)
-
-	Local $a_call = DllCall($__net_hInt_ntdll, "int", "RtlGetCompressionWorkSpaceSize", "ushort", $icompressionformatandengine, "dword*", 0, "dword*", 0)
-	If @error OR $a_call[0] Then
-		Return SetError(1, 0, "")
-	EndIf
-
-	Local $tworkspace = DllStructCreate("byte[" & $a_call[2] & "]")
-	Local $tbuffer = DllStructCreate("byte[" & 16 * DllStructGetSize($tinput) & "]")
-	Local $a_call = DllCall($__net_hInt_ntdll, "int", "RtlCompressBuffer", "ushort", $icompressionformatandengine, "ptr", DllStructGetPtr($tinput), "dword", DllStructGetSize($tinput), "ptr", DllStructGetPtr($tbuffer), "dword", DllStructGetSize($tbuffer), "dword", 4096, "dword*", 0, "ptr", DllStructGetPtr($tworkspace))
-
-	If @error OR $a_call[0] Then
-		Return SetError(2, 0, "")
-	EndIf
-
-	Return BinaryMid(DllStructGetData($tbuffer, 1), 1, $a_call[7])
-
-;~ 	Local $toutput = DllStructCreate("byte[" & $a_call[7] & "]", DllStructGetPtr($tbuffer))
-;~ 	Return SetError(0, 0, DllStructGetData($toutput, 1))
-EndFunc
-#ce
-
 Func __netcode_TCPCloseSocket($hSocket)
 	__Trace_FuncIn("__netcode_TCPCloseSocket", $hSocket)
 
@@ -5623,18 +6059,6 @@ Func __netcode_TCPCloseSocket($hSocket)
 	EndIf
 	Return __Trace_FuncOut("__netcode_TCPCloseSocket", True)
 EndFunc   ;==>__netcode_TCPCloseSocket
-
-Func __netcode_MakeLong($LoWord, $HiWord)
-	Return BitOR($HiWord * 0x10000, BitAND($LoWord, 0xFFFF))
-EndFunc   ;==>__netcode_MakeLong
-
-Func __netcode_HiWord($Long)
-	Return BitShift($Long, 16)
-EndFunc   ;==>__netcode_HiWord
-
-Func __netcode_LoWord($Long)
-	Return BitAND($Long, 0xFFFF)
-EndFunc   ;==>__netcode_LoWord
 
 Func __netcode_Debug($sText)
 	ConsoleWrite($sText & @CRLF)
@@ -5752,6 +6176,7 @@ Func __storageS_AddGroupVar($ElementGroup, $Element0)
 	_storageS_Overwrite("StorageS", $ElementGroup, $arGroupVars)
 EndFunc   ;==>__storageS_AddGroupVar
 
+; there is no way to remove variables (as far as i know). But we can "clean" all of them by overwriting them with Null
 Func _storageS_TidyGroupVars($ElementGroup)
 	Local $arGroupVars = _storageS_Read("StorageS", $ElementGroup)
 	If Not IsArray($arGroupVars) Then Return
@@ -5801,7 +6226,6 @@ Func __Trace_FuncOut($sFuncName, $vReturn = False)
 
 	Local $nArSize = UBound($__net_arTraceLadder)
 
-;~ 	ConsoleWrite($__net_arTraceLadder[$nArSize - 1][0] & @CRLF)
 	If $__net_arTraceLadder[$nArSize - 1][0] <> $sFuncName Then Exit MsgBox(16, "Error", "Trace Error - Exiting" & @CRLF & $__net_arTraceLadder[$nArSize - 1][0] & " <> " & $sFuncName)
 
 	If $__net_bTraceEnableTimers Then __Trace_LogFunc(Default, Default, Default, Default, Default, Default, TimerDiff($__net_arTraceLadder[$nArSize - 1][1]))
@@ -5844,7 +6268,6 @@ Func __Trace_LogFunc($p1, $p2, $p3, $p4, $p5, $p6, $nTimerDiff = False)
 		$sLog &= @TAB
 	Next
 
-;~ 	$sLog &= $__net_arTraceLadder[$nArSize - 1] & "()"
 	$sLog &= $__net_arTraceLadder[$nArSize - 1][0] & "("
 
 	For $i = 1 To 6
@@ -5890,7 +6313,6 @@ Func __Trace_LogError($nError, $nExtended, $sErrorDescription, $sExtendedDescrip
 		Next
 	EndIf
 
-;~ 	$sError &= $__net_arTraceLadder[$nArSize - 1][0] & "() Err: " & $nError & " - Ext: " & $nExtended & " - '" & $sErrorDescription & "' - '" & $sExtendedDescription & "'"
 	$sError &= $__net_arTraceLadder[$nArSize - 1][0] & "() Err: " & $nError & " - Ext: " & $nExtended
 	if $sErrorDescription <> "" Or $sExtendedDescription <> "" Then $sError &= " -"
 	if $sErrorDescription <> "" Then $sError &= " Err: '" & $sErrorDescription & "'"

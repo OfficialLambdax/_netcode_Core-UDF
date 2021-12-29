@@ -1,0 +1,334 @@
+
+Concept Phase Todo list as of 12.28.2021 (MM.DD.YYYY)
+	
+	- Inheritation System
+	
+		_netcode itself comes with a variety of default options. These can be set with _netcode_PresetOption().
+		When a parent is created it inherits these default options.
+		A TCP Accept client inherits its options from the parent socket.
+		A TCP Connect client inherits its options from the server in the presyn stage.
+		
+		These options might contain:
+		- The Crypto algo too use
+		- If the server requires packet encryption
+		- If the server also accepts unencrypted packets
+		- if the server requires packet validation
+		- which validation method needs to be used
+		- which packet format
+		- how large the buffer has to be
+		- which seed to use
+		- how much bytes per second are allowed or if there is any limit at all
+		- etc.
+		
+		The inheritation system is very important for compatibility with different servers and
+		will allow vastly different option sets for each and every socket.
+		
+		Overall changes to settings only need to be done on the server side, a client doesnt need
+		to be updated since it inherits these on connect.
+		
+		TCP Connect clients also should get the ability to check the options it is inheriting.
+		So that a malicious server cannot force vulnerable options upon a client.
+		Example: A dev could set in his client code to always use packet encryption. If the server then comes and
+		says it doesnt want use that, then the client either simply disconnects or overwrites this setting.
+	
+	
+	- Staging system
+		The whole staging system needs to be overhauled.
+		There needs to be a difference between pre stages and final stages.
+		Pre stages are those where both sides communicate internally to syn, login, handshake and so on.
+		Final stages are those where events can be executed.
+		
+		The staging system needs to be Callback based, so that custom stages can be implemented or
+		already existing stages modified. That would be of use for Addons and it would give the user
+		more options to include his own methods. Also different handshake technics could be implemented much
+		easier this way.
+		
+		Additional final stages could also be easiely implemented through this. So that the user can choose
+		between safer but slower or less secure but faster packet methods for his apps.
+		
+		Compatibility stages, for other event based UDF's, could also be easiely implemented then.
+		The compatibility could be in a seperate addon that the user just needs to #include in his script
+		and tell a socket to be compatible. The addon itself then modifies _netcode_Core in the ways necessary
+		and keeps its as easy for the user as possible.
+		
+		
+	- Pre stages packet format
+		the pre stages just need that so that issues can be resolved much easier internally.
+		Security would also rise and ddos attempts be more efficiently resolved.
+		
+		
+	- Stages recreation
+		The Stages itself should work differently.
+		A preshared key, based around the seed, for pre handshake data, should be implemented too.
+		
+		The presyn, syn, user and 2FA stages need to be done.
+		
+		All stage functions should maybe also contain both the server and client side code. So that
+		a _netcode_AuthToNetcodeServer() function call can also be set to be non blocking.
+		
+		
+	- Seeding
+		The seeding system should be optimised and get better implementation into the staging process.
+		
+		Strings produced from the Seed definitly should not be reverseable to the Seed.
+		So that someone getting access, through lets say MITM or capturing, to Seed strings cannot
+		generate the preshared key from it.
+		
+		I should also describe what the seeding system is for. The seeding system is pretty much just there
+		to make it harder for an attacker to disassemble packets. He has to recreate the seeding system in
+		his scripts to be able to actually just read the data. If he dont he will end up with just garbage
+		even then when he knows the encryption passwords.
+		This system could protect from non experienced attackers and the
+		experienced have to put serious effort into it to automate the attack. Those who dont know _netcode will
+		have a extra hard time. But the seeding system is not there to secure traffic, it wont protect
+		the decryption of data, its only existence reason is the speculation that an attacker doesnt want to
+		spend the time and effort to automate the process.
+		
+		On the other side the Seeding system takes nearly no performance. Since the seed strings are created in the
+		presyn stage.
+		
+		I also have to randomize the len of atleast the packet wrapper strings, so that an attacker cant go
+		with the assumption that these strings are always exactly, lets say, 10 bytes long.
+		
+		And these Strings and their lens need to be different for every packet. These strings need to look like
+		encrypted text. Otherwise it will be easy to distinguish from the packet wrapper and the packet content.
+		All of that need to be lightweight. Even so that that system improves the overall security,
+		it would be a big downside if it puts a mayor toll on the performance.
+		
+		So Overall this system should make it hard and slow to dissassemble packets for a third party while it is
+		very lightweight in the packet creation and disassembly process.
+		
+		
+	- Perfect Forwarded Secrecy
+		For a Client it needs to be possible to ensure it is connected to the actual server it intended to
+		connect to. The packet encryption needs to be very strong.
+		
+		This is Transport Layer Security v1.2 - v1.3. Overall the whole Cert check and Session key handshake
+		needs to be efficient and fast.
+		
+	
+	- End to End Encryption
+		It should be possible to have two or more clients send messages to each other safely. Given
+		that the Server uses PFS it should be impossible for the server to read messages between two clients.
+		Atleast if thats the purpose of the service.
+		
+		A possible solution could be Double Ratchet.
+	
+	
+	- User management
+		The user db size should be flexible. If a dev decides to add more custom variables to it than that should
+		be possible. The dev should be able to set if the custom var is temporary for the runtime or permament.
+		Sub streams should not add to the User count. Each User in the db should have a UUID. The UUID should
+		not represent the Array index. The array index for a User should be stored in a var once its accessed,
+		so that further interactions with it are fast and the array isnt constantly searched.
+		The user db should be loaded in memory and changes to it shouldnt be flushed to disk until the dev
+		calls a function for it. The function should then check if any change happend, if not then the disk isnt
+		touched. Exceptions are the adding, deleting or changing of the username or password of a user.
+		
+		Chars used in the Username should be Whitelisted. The dev should be able to set this whitelist.
+		
+		A dev should be able to define a minimum username and password len.
+		
+		_netcode itself should not have the option to register a user. So that the dev can decide how he
+		manages that.
+		
+		Every entry of the db that is stored on the disk should be binarized. So that never any
+		DB corruption can happen.
+		
+		Overall the user management should be easiely usable. Its extended features should not be required to be
+		used, but could be at any time.
+		
+		disk user db content
+
+			[0][0] = Unique User Identification (UUID)
+			[0][1] = Username
+			[0][2] = SHA256 Password
+						Never the Plaintext PW
+			[0][3] = ExAuth Toggle
+						True / False - for Extended Authentication
+			[0][4] = ExAuth Method
+						Method name like 2FA-Mail, 2FA-Phone or a custom which can link to a callback that
+						manages the ExAuth
+			[0][5] = ExAuth extended
+						Additional information for the method like email / phone number etc.
+			[0][6] = Account creation date
+						MM/DD/YYYY HH:SS (should follow a format that is compatible with Date.au3 to keep it easy)
+			[0][7] = User State
+						Active = User login is possible
+						OnHold = User login is not possible. Suspended account, is awaiting approval or
+						requiring email verification
+						Banned = User login is not possible. User gets a notice about it.
+						Blocked = User login is not possible and User get no notice about it.
+			[0][8] = User State extended
+						User state extended that can link to a callback that manages the User State.
+						Like Active-Perm, Active-Till, Banned-Perm, Banned-Till, Suspended-AwaitingApproval
+			[0][9] = User State to Date
+						MM/DD/YYYY HH:SS a Time till when the State is active.
+						Banned till or Active till.
+						Generally this information would be used for the user state extended functions.
+			[0][10] = User State reason
+						The Reason for the User State. Aka the Ban reason or why the account is suspended.
+						Stuff like that.
+			[0][11] = Last Login dates
+						An serialized 2D Array containing the date and the ip.
+						The amount of elements the db saves should be setable by the dev.
+			[0][12] = Last failed Login dates
+						An serialized 2D Array containing the date, ip and the fail reason.
+						The amount of elements the db saves should be setable by the dev.
+						A dev should be able to optionally set a callback, that is called once a user
+						login failes or once a user logins successfully after a failed one.
+						So that he can tell the user about it if we wants to code it like that.
+			[0][13] = Account User limit
+						How many clients are allowed for this User at any time.
+						One user entry could allow hundreds of clients and another just a single.
+						Opening this up could open more possibilities for a dev.
+						At default this entry should always be set to 1.
+						A dev should be able to set a optional callback if the user limit is reached.
+						So that he can tell the next client why he cant login.
+			[0][14] = Events just for this Account
+						An serialized 2D Array containing the eventname and the callback for just this user.
+						An admin could get access to control functions for example.
+						Or a moderator the ability to kick someone. Stuff like that.
+			[0][15] = Events this User is never allowed from obtaining
+						An serialized 1D Array containing the eventname.
+						These events would be put on a blacklist that is put on every socket that logins
+						with this user. Within the packet execution these events would be filtered.
+						So a user can still obtain the events but the events would just never be executed.
+						Could be usefull to restrict the access of a user temporary.
+			[0][16] = User is allowed to store data to the encrypted disk db
+						True / False - if the User is allowed to store data to the encrypted disk db.
+			[0][17] = User disk content ids
+						An serialized 2D Array containing the container ID's and their maximum sizes.
+						A user should only be able to store data to preset ID's. So that the dev has atleast
+						some control over what goes where and to which amount.
+			[0][18] = Group names
+						An serialized 1D Array containing the Group names.
+						Like Guest, Premium, Admin, Moderator etc.
+						Events are tied to these group names in the group db.
+			[0][19] = #Tags
+						An serialized 1D Array containing the #Tag names.
+						Could be used just visually or similiar to the groups or "Events just for this Account"
+						function. Events or functions are maybe tied to these #Tags in the Tags db.
+						Could be used to give a user a different color in a chat or access to a specific channel
+						or just the rights to upload a file. Or in a case where everyone gets a free gift. And a
+						#gift tag allows them to access the required functions to obtain the gift. The tag could
+						then also be removed again once the gift is obtained.
+						The idea of the tags in _netcode is simply to give a dev the option to easiely add a
+						event or function to a user. So that he doesnt need to create or change his role.
+						Either temporary or permamently.
+			[0][20] = Suspicion Level
+						A serialized 2D Array with a unspecified amount of rows and elements.
+						Not managed by _netcode. A dev should just be able to collect information about
+						unusual behaviour. A flood for example would just never happen within _netcode.
+						But if it does then it could indicate that the user is playing around with the client.
+						So he could add that to this array.
+						Or think of a VPN user. Maybe the dev wants to handle users with a VPN differently.
+			[0][21] = Online Time
+						Will collect the overall time in seconds that this user was used.
+			[0][22] = _netcode Branch and Version
+						The branch and version that user is using the last time he connected.
+						Might not work correctly if multiple clients can use a single user.
+						A dev could decide upon these entries when he can shutdown older servers that where just
+						running for user that just didnt update. He could also use that to give the user
+						a notifictation that he should update.
+						So it should be possible for a dev to set a callback here, for when a User
+						doesnt use the correct _netcode version.
+			[0][23] = Custom Program specific Version
+						Exactly the same as with the _netcode Branch and Version but with the Version
+						info that his own Program has.
+			[0][n] = Additional Custom Vars
+			
+			
+		- disk user groub db content
+		
+			[0][0] = Group name
+			[0][1] = Events just for this Group
+						A serialized 2D Array containing the eventname and callback.
+						Every user of this group will get these Events on login.
+			[0][2] = Events this Group is not allowed from obtaining
+						A serialized 1D Array containing the eventnames forbidden for the
+						Users in this group. User can still obtain these events through other
+						means but the execution is prevented internally.
+			[0][3] = Users of Group are allowed to store data to the encrypted disk db
+						True / False
+			[0][4] = Encrypted disk content ids
+						An serialized 2D Array containing the container ID's and their maximum sizes.
+						ID's for the encrypted containers
+			[0][5] = Online Time (timer handle)
+						Will collect the overall time in seconds that this group was used.
+			[0][n] = Additional Custom Vars
+			
+			
+		- disk user #tag db content
+		
+			[0][0] = #Tag
+			[0][1] = Events just for the Users with this #Tag
+			[0][1] = 
+			[0][1] = 
+			[0][1] = 
+			[0][1] = 
+			
+			
+		- encrypted disk container format
+		
+			~ todo
+		
+		
+		
+	- Extended Authentication for the User management
+		- 2FA
+			_netcode itself should not provide 2FA methods, like sending a email or a sms.
+			It should more likely come with a callback that the dev has to set. And in his function
+			he then sends the code to the user.
+		
+		- MFA
+			https://support.microsoft.com/en-us/topic/what-is-multifactor-authentication-e5e39437-121c-be60-d123-eda06bddf661
+			"Something you know - Like a password, or a memorized PIN.
+			Something you have - Like a smartphone, or a secure USB key.
+			Something you are - Like a fingerprint, or facial recognition."
+		
+		- Customs
+			A dev should be able to configure its own ExAuth methods. For example if he wants the user
+			to have a key on a USB that has to be plugged into the pc while login then he could code and
+			implement that.
+			
+		I might also have to provide the ability to remember a user. So that a user doesnt need to
+		ExAuth on every login. I have to see how i do it, either for the runtime or per IP/device etc.
+		
+		
+	- Sub Streams (Socket linking)
+	
+		Since _netcode is ment to come with different packet formats and different manage modes that are
+		differently secure and performant, it should be possible for a dev to open up sub streams.
+		The main socket is the main stream. Sub streams are sockets that are created below this main socket.
+		
+		Sensitive data could be send over the slower main stream while unsensitive over a fast sub stream.
+		
+		Think of the .\examples\file send\rawlinked example. The upload of the file is registered on the
+		main stream and the file itself then uploaded of the much faster sub stream.
+		
+		With how _netcode is coded it makes generally no difference to use sub streams with the same managemode.
+		There is no performance gain because of it. But the current 'rawlinked' managemode for example provides
+		no packet format and is pure streaming. So sending messages is not the use case for this mode.
+		Large data sets however can be send with over 100 % of the 'netcode' managemode speed.
+		So there are usecases for sub streams.
+		
+		I have to setup the sub streams in a way that it can be made sure that the sub streams always originate
+		from the same source as the main stream. So that no third party can thieve a sub stream.
+	
+	
+	- Documentation
+	
+		Similiar to how Autoit itself does it with its documentation.
+		F1 should work fine. Examples should be present for every function.
+		
+		Extended Examples etc. too.
+		
+		Some form of flow charts or info graphics to explain various _netcode systems might also would be great.
+		
+		Generally the UDF should be easy to use. So inexperienced devs should be able to easiely get into it.
+		A specific documentation should be formulated in easy language to make it extra easy.
+		
+		Various _netcode system should also be extensively described and shown. So that experienced devs can
+		give feedback or more likely get to use _netcode. A high community usage obviously would make the UDF
+		better and better over time and benefit the whole community.

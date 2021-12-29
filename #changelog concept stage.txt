@@ -1,3 +1,13 @@
+29.12.2021 (DD/MM/YYYY) 0.1.5.12
+
+	Additions
+		- UDF Headers. The UDF is far from being alpha, so dont take it as a sign. I just felt like writing them.
+		
+		- Concept Plan. Contains various ideas and is overall a todo list on the road to alpha.
+		I generally made this roadmap to get a clearer view in which ways i need to overhaul or implement certain
+		sub systems.
+
+
 27.12.2021 (DD/MM/YYYY) 0.1.5.11
 
 	Fixes
