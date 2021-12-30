@@ -192,7 +192,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.12"
+Global Const $__net_sNetcodeVersion = "0.1.5.13"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -2842,7 +2842,6 @@ Func __netcode_ManageNetcode($hSocket, $sPackages)
 
 	Local $arPackages = StringSplit($sPackages, $sPacketBegin, 1)
 	Local $arPacketContent[0]
-;~ 	Local $hPassword = Ptr("")
 	Local $hPassword = __netcode_SocketGetPacketEncryptionPassword($hSocket)
 
 ;~ 	if @ScriptName = "server.au3" Then _ArrayDisplay($arPackages)
@@ -2870,8 +2869,7 @@ Func __netcode_ManageNetcode($hSocket, $sPackages)
 			If $arPacketContent[0] < 2 Then
 				; if allowed
 
-;~ 				$hPassword = __netcode_SocketGetPacketEncryptionPassword($hSocket)
-				$arPacketContent = StringSplit(BinaryToString(__netcode_AESDecrypt(StringToBinary($arPackages[$i]), $hPassword)), $sPacketInternalSplit, 1)
+				$arPacketContent = StringSplit(BinaryToString(__netcode_AESDecrypt(StringToBinary($arPackages[$i]), $hPassword), 4), $sPacketInternalSplit, 1)
 
 
 			EndIf
@@ -3743,7 +3741,7 @@ Func __netcode_CreatePackage(Const $hSocket, $sEvent, $sData)
 	; encrypt packet content
 	If __netcode_SocketGetPacketEncryption($hSocket) Then
 		Local $hPassword = __netcode_SocketGetPacketEncryptionPassword($hSocket)
-;~ 		$sPackage = BinaryToString(__netcode_AESEncrypt(StringToBinary($sPackage), $hPassword))
+
 		$sPackage = BinaryToString(__netcode_AESEncrypt($sPackage, $hPassword))
 	EndIf
 
