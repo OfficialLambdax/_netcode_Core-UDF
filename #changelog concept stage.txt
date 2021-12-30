@@ -5,7 +5,7 @@
 		encryption was used for the given socket. If special characters where used then these got corrupted.
 		
 	Fixed
-		- The issue mentioned in 0.1.5.10, which special characters, was partially fixed.
+		- The issue mentioned in 0.1.5.10, with special characters, was partially fixed.
 		If Encryption is toggled On for the given socket then no data corruption will appear. But still will
 		if Encryption is toggled Off.
 		

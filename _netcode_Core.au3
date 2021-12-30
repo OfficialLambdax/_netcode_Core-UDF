@@ -695,6 +695,8 @@ EndFunc   ;==>__netcode_PreSyn
 ; Parameters ....: $hSocket             - [const] The socket
 ;                  $sEvent              - Eventname (case-sensitive)
 ;                  $sData               - [optional] The data you optionally want to send to the event. See _netcode_sParams() for more options.
+;										  It is best to give String data ! If you do want to give binary then have it converted with $SB_UFT8 otherwise
+;										  data corruption will happen.
 ;                  $bWaitForFloodPrevention- [optional] See Remarks
 ; Return values .: False				= If the packet couldnt be quod
 ;				   True					= If the packet was successfully quod
@@ -2513,6 +2515,7 @@ Func __netcode_ManagePackages(Const $hSocket, $sPackages)
 
 
 		Case Else
+			__Trace_Error(1, 0, "CRITICAL: Socket has invalid Manage mode")
 			; something wrong
 
 
