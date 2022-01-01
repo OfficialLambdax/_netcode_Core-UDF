@@ -1,3 +1,19 @@
+01.01.2022 (DD/MM/YYYY) 0.1.5.14
+	
+	Fixed
+		- Under the cirumstance that either _netcode_Loop(), _netcode_RecvManageExecute()
+		or _netcode_UseNonCallbackEvent() was used in a Event then it could happend that
+		__netcode_ExecutePackets() wrongly overwritten the execution buffer and because of it
+		deleted packets. Overall, neither of the mentioned functions should be used within
+		a Event, otherwise that might lead to a recursion crash.
+		
+		
+	Additions
+		- Added addtional Terminology describtions to the UDF header
+		
+		- Added a Fatal Tracer Warning when recursion is detected
+
+
 30.12.2021 (DD/MM/YYYY) 0.1.5.13
 	
 	Hotfix

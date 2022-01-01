@@ -1,7 +1,7 @@
 ;~ #AutoIt3Wrapper_AU3Check_Parameters=-w 1 -w 2 -w 3 -w 4 -w 5 -w 6 ; shows errors that arent errors - i used __netcode_Au3CheckFix() to fix
 #include-once
-#include <Array.au3> ; For development
-;~ Opt("MustDeclareVars", 1)
+#include <Array.au3> ; For development of this UDF
+;~ Opt("MustDeclareVars", 1) ; nice fature to find missing variable declarations
 #cs
 
 	Github
@@ -35,6 +35,123 @@
 			_netcode uses so called Stages. Each and every incomming connection needs to stage through several stages before it is possible to interact with them.
 			Within these stages a session key is handshaked, options are synced, the optional user login is done and more. A client for example always inherits
 			the options from the server and obviously that needs to be done at some point.
+
+
+		Events
+			_netcode Supports 2 different types of Events. Callback Events and Non Callback Events. The difference of them is described below.
+			Besides this _netcode has so called Default Events and Socket specfic events.
+
+			Default Events are useable by each and every Socket. _netcode_PresetEvent() is the function for that.
+
+			Socket specific events are limited to the Socket they are bind to.
+			If you set events to a parent with _netcode_SetEvent() then every Accept Client, once created, get all parent events bind to themself.
+			If you set one or more events with _netcode_SetEvent() to a Accept or Connect Client, then only this Client will have these Events.
+
+			Socket specific Events are priotised over Default events.
+			_netcode simply checks for a socket specifc event first and then for a default event. Whatever comes first is used. If the event is not set
+			when the packets are processed and executed then the data is simply rejected.
+
+			Events are case-sensitive.
+			So if you set a event like _netcode_SetEvent(hSocket, "MyEvent", "_Event_MyEvent") then you can only call it by using
+			_netcode_TCPSend($hSocket, "MyEvent") and not with "myevent" or "Myevent" etc.
+
+			IMPORTANT NOTICE
+			Do not, and i repeat do not, call _netcode_Loop(), _netcode_RecvManageExecute() or _netcode_UseNonCallbackEvent() within a Event. This can and will trigger recursion crash's.
+			_netcode_Loop()
+				_Event_MyEvent()
+					_netcode_Loop()
+						_Event_MyEvent()
+							_netcode_Loop()
+								.... n
+
+			This also applies to large data sends that would trigger a Flood Prevention within _netcode_TCPSend().
+			So if you are going to write a complex script then do large data sends outside of the event, to prevent recursion issues.
+
+		Callback Event
+			Set with _netcode_SetEvent($hSocket, "MyCallbackEvent", "_Event_MyCallbackEvent")
+			Callback events are tied to Functions of your own. So if you have set the "MyCallbackEvent" on lets say the server like above and then send data to it
+			from the client with _netcode_TCPSend($hSocket, "MyCallbackEvent", "example data") then your Function "_Event_MyCallbackEvent" will be called with 2 parameters,
+			once the server received and processed the packet.
+
+			Your Callback function ALWAYS has to have atleast one parameter
+				Func _Event_MyCallbackEvent(Const $hSocket)
+
+			This Event then can easiely be called with _netcode_TCPSend($hSocket, "MyCallbackEvent")
+
+			If you use the $sData param in _netcode_TCPSend() without _netcode_sParams() or .._exParams() then your Callback function needs to look like this
+				Func _Event_MyCallbackEvent(Const $hSocket, $sData)
+
+			_netcode_TCPSend($hSocket, "MyCallbackEvent", "your data")
+
+
+			Your Callback Function can have up to 16 parameters
+				Func _Event_MyCallbackEvent(Const $hSocket, $param1, $param2, $param3..... $param16)
+
+			In order to send up to 16 parameters you have to use _netcodes own Serializer that comes with 2 Feature sets.
+				_netcode_sParams()
+				_netcode_exParams()
+				More information available in the Serialization point.
+
+
+			Your Callback Function parameter amount always need to match the amount of params that you send. Otherwise the Function Call() will fail and the data is rejected.
+
+		Non Callback Event
+			Set with _netcode_SetEvent($hSocket, "MyNonCallbackEvent")
+			Non Callback events are not tied to Functions of your own. The data send to it can be read with _netcode_GetEventData().
+			The general idea behind Non Callback events is to make it possible to get data like how you would with a simple Function call.
+
+			So if you have set a non callback event with _netcode_SetEvent($hSocket, "MyNonCallbackEvent")
+			then you can either use _netcode_GetEventData() to check for data for the Event or you can use _netcode_UseNonCallbackEvent().
+
+			_netcode_UseNonCallbackEvent() will send data to the given event of the receiver and will wait for a response on your non callback event
+			and return it then.
+
+			Local $arEventResponse = _netcode_UseNonCallbackEvent($hSocket, "MyNonCallbackEvent", "SendMyRequestToThisEventOnTheReceiversEnd", "OptionalData")
+
+			Both _netcode_GetEventData() and _netcode_UseNonCallbackEvent() will return a CallArgArray, which would usually be used for Calling the Event Function.
+
+			[0] = "CallArgArray"
+			[1] = $hSocket
+			[2] = response data
+			[.]
+			[.]
+			[16] = up to 16 params
+
+			So Non callback Events are also compatible with _netcode_sParams() and .._exParams().
+
+		Serialization
+			_netcode features two Serializers _netcode_sParams() aka Simple parameters and _netcode_exParams() aka extended parameters.
+
+			The Simple params serializer is faster then the Extended params. But exParams provides Variable Type reconstruction.
+
+			AS OF NOW exParams is not implemented !
+
+			Both serializers convert the given params into a String which can be send with _netcode_TCPSend().
+			Like _netcode_TCPSend($hSocket, "MyEvent", _netcode_sParams($param1, $param2, $param3))
+			Within the Packet Execution the serialized data is then deserialized.
+
+			So you will get exactly, in your Event function, what you have send.
+
+			Both serializers support Arrays of any size. Also 2 Dimensional.
+
+			Objects are not supported.
+
+			If you want to add your own Serialization then you can do that.
+			_netcode_TCPSend($hSocket, "MyEvent", _Serialize($data))
+			and in your event function simply
+			$data = _Deserialize($data)
+
+
+		Tracer
+			The Tracer is a debug feature. It Traces the whole _netcode code execution and will consolewrite and log errors that might happend.
+			So if your script doesnt work as it should then try setting $__net_bTraceEnable = True and $__net_bTraceLogErrorEnable = True
+			The Tracer also has the ability to log every function call to the console. $__net_bTraceLogEnable = True
+
+			Overall the Tracer, if enabled, will take some performance but is great to find issues and bugs. A misspelled eventname for example
+			is easiely detectable with it.
+
+			Errors and Warning are printed in Red if you run your script within SciTE.
+
 
 
 	Known Bugs
@@ -182,6 +299,7 @@ Global $__net_hInt_hAESAlgorithmProvider = -1 ; AES provider handle
 Global $__net_hInt_hRSAAlgorithmProvider = -1 ; RSA provider handle
 Global $__net_hInt_hSHAAlgorithmProvider = -1 ; SHA provider handle
 Global $__net_nInt_CryptionIterations = 1000 ; i have to research the topic of Iterations
+Global $__net_nInt_RecursionCounter = -1 ; starting at -1
 __netcode_SRandomTemporaryFix()
 
 ; ===================================================================================================================================================
@@ -192,7 +310,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.13"
+Global Const $__net_sNetcodeVersion = "0.1.5.14"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -235,6 +353,8 @@ EndFunc   ;==>_netcode_Shutdown
 Func _netcode_Loop(Const $hListenerSocket)
 	__Trace_FuncIn("_netcode_Loop", $hListenerSocket)
 
+	$__net_nInt_RecursionCounter += 1
+
 	Local $nSocketIs = 0
 	Local $hNewSocket = 0
 	Local $bReturn = False
@@ -243,8 +363,11 @@ Func _netcode_Loop(Const $hListenerSocket)
 	$nSocketIs = __netcode_CheckSocket($hListenerSocket)
 	If $nSocketIs = 0 Then
 		__Trace_Error(1, 0, "Socket is unknown", "", $hListenerSocket)
+		$__net_nInt_RecursionCounter -= 1
 		Return SetError(1, 0, __Trace_FuncOut("_netcode_Loop", False)) ; socket is unknown
 	EndIf
+
+	if $__net_nInt_RecursionCounter > 0 Then __Trace_Error(0, 0, "FATAL WARNING: Recursion level @ " & $__net_nInt_RecursionCounter & ". Script might crash. See _netcode_SetEvent() Remarks.")
 
 	; work through send quo
 	if Not $__net_bPacketConfirmation Then __netcode_SendPacketQuoIDQuerry()
@@ -310,7 +433,7 @@ Func _netcode_Loop(Const $hListenerSocket)
 
 	EndSwitch
 
-
+	$__net_nInt_RecursionCounter -= 1
 	Return __Trace_FuncOut("_netcode_Loop", True)
 
 EndFunc   ;==>_netcode_Loop
@@ -695,29 +818,33 @@ EndFunc   ;==>__netcode_PreSyn
 ; Parameters ....: $hSocket             - [const] The socket
 ;                  $sEvent              - Eventname (case-sensitive)
 ;                  $sData               - [optional] The data you optionally want to send to the event. See _netcode_sParams() for more options.
-;										  It is best to give String data ! If you do want to give binary then have it converted with $SB_UFT8 otherwise
-;										  data corruption will happen.
+;										  It is best to give String data [BinaryToString()] ! If you do want to give binary then have it converted
+;										  with $SB_UFT8 otherwise data corruption will happen.
 ;                  $bWaitForFloodPrevention- [optional] See Remarks
 ; Return values .: False				= If the packet couldnt be quod
 ;				   True					= If the packet was successfully quod
 ; Errors ........: 10					= Illegal event used
 ;				   11					= The given Data is to large to be ever send
+;				   12					= Tracer Warning only: The given Data is not of Type String.
 ;                  1					= Flood prevention error. Will be returned if the data couldnt be quod because the buffer is too full
 ; Extended ......: 1					= Socket is unknown or the Socket got disconnected
 ; Modified ......:
 ; Remarks .......: _netcode uses a Buffering system to make sure that neither the server nor the client is sending more data
-;				   then the other side can process. Todo that _netcode does some calculations and will reject data if its to much.
+;				   then the other side can process. Todo that _netcode does some calculations and will reject data if its to much for the other side to handle.
 ;				   This feature is called Flood Prevention. If $bWaitForFloodPrevention is set to True then this function will wait
 ;                  for the buffer to be empty enough again to quo up the current packet. If its set to False then this function will
-;                  return, without quoing the packet, and will tell you about it. On servers you should set $bWaitForFloodPrevention to False.
-;				   Otherwise slow clients will lag the whole server.
+;                  return, without quoing the packet, and will give @error = 1. On servers you should set $bWaitForFloodPrevention to False.
+;				   Otherwise slow clients will lower the performance for all other Clients.
 ;                  See _netcode_GetMaxPacketContentSize(), _netcode_GetDefaultPacketContentSize() and _netcode_GetDynamicPacketContentSize() for the right data sizes.
 ;
 ;				   Again. This function does not Send data. It quos it up. The packets are send once you call _netcode_Loop() the next time.
 ;				   There are two reasons why this is done. First of all _netcode combines packets, sending a single is just faster then sending multiple.
 ;				   Second, all sockets are set to be non blocking. So managing alot of Sockets is much more efficient and a single slow socket cant anymore
 ;				   slow down all other or the whole script.
-; Example .......: .\examples\TCPSend ~ todo note: Should exactly show how to use _netcode_TCPSend on a server for maximum performance
+;
+;				   If you opened a File in read mode with the Binary flag (16) then what you read with FileRead does not have the right binary format and
+;				   and the Data will be corrupted. Use BinaryToString() when you send the data and StringToBinary() in your Event function.
+; Example .......: .\examples\TCPSend ~ todo note: I should exactly show how to use _netcode_TCPSend on a server for maximum performance
 ; ===============================================================================================================================
 Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPrevention = True)
 	__Trace_FuncIn("_netcode_TCPSend", $hSocket, $sEvent, "$sData", $bWaitForFloodPrevention)
@@ -732,6 +859,11 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 	if $sEvent = 'connection' Or $sEvent = 'disconnected' Then
 		__Trace_Error(10, 0, "The " & $sEvent & " event is an invalid event to be send")
 		Return SetError(10, 0, __Trace_FuncOut("_netcode_TCPSend", False))
+	EndIf
+
+	; temporary check data variable type
+	if Not IsString($sData) Then
+		__Trace_Error(12, 0, "WARNING: Data is of Type: " & VarGetType($sData) & " but should be of Type String. Data Corruption might happen.")
 	EndIf
 
 	; create package
@@ -1402,7 +1534,7 @@ EndFunc
 ; Syntax ........: _netcode_SetEvent(Const $hSocket, $sName, $sCallback[, $bSet = True])
 ; Parameters ....: $hSocket             - [const] Parent or Client socket
 ;                  $sName               - Eventname (case-sensitive)
-;                  $sCallback           - [optional] Callback function name
+;                  $sCallback           - [optional] String Callback function name. If "" is given then the Event is a Non Callback Event.
 ;                  $bSet                - [optional] True = Set - False = Unset
 ; Return values .: True					= Success
 ;				   False				= Failed
@@ -1411,10 +1543,16 @@ EndFunc
 ;				   3					= Event is already set
 ;				   4					= Event does not exist
 ; Modified ......:
-; Remarks .......: If you set an Event to a parent, then each NEW client of it will inherit this event then.
-;                  If you set an Event to a client, then only this specific client will have it.
+; Remarks .......: If you set an Event to a parent, then each NEW TCPAccept client of it will inherit this event then.
+;                  If you set an Event to a TCP- Accept or Connect client, then only this specific client will have it.
 ;                  _netcode supports up to 16 params for Callback functions.
-; Example .......: No
+;				   Events are case-sensitive. And keep in mind that Non Callback Events need to be used differently.
+;
+;				   IMPORTANT NOTICE
+;				   Do not use _netcode_Loop(), _netcode_RecvManageExecute() or _netcode_UseNonCallbackEvent() within your
+;				   event functions, because that might lead to a recursion crash. A Fatal Tracer Warning will be shown if the Tracer is enabled.
+; Example .......: _netcode_SetEvent($hSocket, "MyCallbackEvent", "_Event_MyCallbackEvent")
+;				   _netcode_SetEvent($hSocket, "MyNonCallbackEvent")
 ; ===============================================================================================================================
 Func _netcode_SetEvent(Const $hSocket, $sName, $sCallback = "", $bSet = True)
 	__Trace_FuncIn("_netcode_SetEvent", $hSocket, $sName, $sCallback, $bSet)
@@ -2422,6 +2560,10 @@ Func __netcode_CheckSocketIfAllowed(Const $hSocket, $hParentSocket = False)
 EndFunc   ;==>__netcode_CheckSocketIfAllowed
 
 ; executes all packets in the buffer, will fail if socket is OnHold
+; marked for recoding
+; This function also should only remove packets from the execution buffer that it is going to execute. So that packets that might got added, through
+; the call of _netcode_Loop() or _netcode_RecvManageExecute() within a Event, do not get lost.
+; i might also want to deny packet execution, internal packets not included, if the calls where done in a Event.
 Func __netcode_ExecutePackets(Const $hSocket)
 	__Trace_FuncIn("__netcode_ExecutePackets", $hSocket)
 
@@ -2432,22 +2574,28 @@ Func __netcode_ExecutePackets(Const $hSocket)
 	Local $nCurrentIndex = _storageS_Read($hSocket, '_netcode_ExecutionIndex')
 	Local $sID = ""
 
-	For $i = $nCurrentIndex To UBound($arPackages) - 1
+	For $i = $nCurrentIndex To 999
 		If $arPackages[$i][0] = '' Then ExitLoop
 
+		; remove data from the buffer
+		__netcode_SocketRemExecutionBufferValue($hSocket, $i)
+
+		$nCurrentIndex += 1
+		If $nCurrentIndex = 1000 Then $nCurrentIndex = 0
+
+		; and update execution index
+		_storageS_Overwrite($hSocket, '_netcode_ExecutionIndex', $nCurrentIndex)
+
+		; execute event
 		__netcode_ExecuteEvent($hSocket, $arPackages[$i][0], $arPackages[$i][1])
 
 		; if the event disconnected the socket or released it then return since there is no longer a purpose to execute more or todo anything else
 		if __netcode_CheckSocket($hSocket) == 0 Then Return __Trace_FuncOut("__netcode_ExecutePackets")
 
-;~ 		_netcode_TCPSend($hSocket, 'netcode_internal', 'packet_confirmation|' & $i, False)
 		$sID &= $i & ','
 
 		$arPackages[$i][0] = ''
 		$arPackages[$i][1] = ''
-
-		$nCurrentIndex += 1
-		If $nCurrentIndex = 1000 Then $nCurrentIndex = 0
 
 	Next
 
@@ -2458,8 +2606,6 @@ Func __netcode_ExecutePackets(Const $hSocket)
 		EndIf
 	EndIf
 
-	__netcode_SocketSetExecutionBufferValues($hSocket, $nCurrentBufferIndex, $arPackages)
-	_storageS_Overwrite($hSocket, '_netcode_ExecutionIndex', $nCurrentIndex)
 	__Trace_FuncOut("__netcode_ExecutePackets")
 EndFunc   ;==>__netcode_ExecutePackets
 
@@ -3311,6 +3457,9 @@ Func __netcode_AddToExecutionBuffer(Const $hSocket, $sID, $sEvent, $sData)
 
 		; all packets below the Execution Index can be ignored.
 		If $nPacketID < $nCurrentIndex Then Return
+
+		; do not update the buffer index since we still expect it
+
 	Else
 		; if the current index > the size of the array then reset to the 0 index
 		$nCurrentBufferIndex += 1
@@ -3318,11 +3467,12 @@ Func __netcode_AddToExecutionBuffer(Const $hSocket, $sID, $sEvent, $sData)
 	EndIf
 
 	; write event and data to the buffer
-	$arBuffer[$nPacketID][0] = $sEvent
-	$arBuffer[$nPacketID][1] = $sData
+;~ 	$arBuffer[$nPacketID][0] = $sEvent
+;~ 	$arBuffer[$nPacketID][1] = $sData
 
 	; storage the changed buffer
-	__netcode_SocketSetExecutionBufferValues($hSocket, $nCurrentBufferIndex, $arBuffer)
+;~ 	__netcode_SocketSetExecutionBufferValues($hSocket, $nCurrentBufferIndex, $arBuffer)
+	__netcode_SocketAddExecutionBufferValue($hSocket, $nPacketID, $sEvent, $sData, $nCurrentBufferIndex)
 
 	; check if the missing packets are now here. If then release the OnHold status
 	; ~ needs heavy testing
@@ -3750,7 +3900,7 @@ Func __netcode_CreatePackage(Const $hSocket, $sEvent, $sData)
 
 	; wrap the packet content
 	$sPackage = $sPacketBegin & $sPackage & $sPacketEnd
-	$nLen = StringLen($sPackage)
+	Local $nLen = StringLen($sPackage)
 
 	; check if the packet size would exceed the left buffer space
 	If Number(_storageS_Read($hSocket, '_netcode_SafetyBufferSize')) + $nLen > $__net_nMaxRecvBufferSize Then
@@ -3907,10 +4057,35 @@ EndFunc   ;==>__netcode_SocketGetExecutionBufferValues
 
 Func __netcode_SocketSetExecutionBufferValues(Const $hSocket, $nIndex, $arBuffer)
 	__Trace_FuncIn("__netcode_SocketSetExecutionBufferValues", $hSocket, $nIndex, "$arBuffer")
-	_storageS_Overwrite($hSocket, '_netcode_ExecutionBufferIndex', $nIndex)
+	_storageS_Overwrite($hSocket, '_netcode_ExecutionBufferIndex', $nIndex) ; hold the next expected packet ID
 	_storageS_Overwrite($hSocket, '_netcode_ExecutionBuffer', $arBuffer)
 	__Trace_FuncOut("__netcode_SocketSetExecutionBufferValues")
 EndFunc   ;==>__netcode_SocketSetExecutionBufferValues
+
+; adds data to the execution buffer
+Func __netcode_SocketAddExecutionBufferValue(Const $hSocket, $nIndex, $sEvent, $sData, $nCurrentBufferIndex)
+
+	Local $arBuffer = __netcode_SocketGetExecutionBufferValues($hSocket)
+
+	$arBuffer[$nIndex][0] = $sEvent
+	$arBuffer[$nIndex][1] = $sData
+
+	__netcode_SocketSetExecutionBufferValues($hSocket, $nCurrentBufferIndex, $arBuffer)
+
+EndFunc
+
+; removes the data from the given index
+Func __netcode_SocketRemExecutionBufferValue(Const $hSocket, $nIndex)
+
+	Local $arBuffer = __netcode_SocketGetExecutionBufferValues($hSocket)
+	Local $nCurrentBufferIndex = @error
+
+	$arBuffer[$nIndex][0] = ""
+	$arBuffer[$nIndex][1] = ""
+
+	__netcode_SocketSetExecutionBufferValues($hSocket, $nCurrentBufferIndex, $arBuffer)
+
+EndFunc
 
 Func __netcode_SocketGetEvents(Const $hSocket)
 	__Trace_FuncIn("__netcode_SocketGetEvents", $hSocket)
@@ -5104,7 +5279,7 @@ Func __netcode_TCPRecv_Backup($iMainsocket, $iMaxLen, $iFlag = 0)
 	Local $bError = 0, $nCode = 0, $nExtended = 0
 
 	If Not $bError Then
-		$aRet = DllCall($hWs2, "int", "ioctlsocket", "uint", $iMainsocket, "long", 0x8004667e, "ulong*", 1) ;FIONBIO
+		Local $aRet = DllCall($hWs2, "int", "ioctlsocket", "uint", $iMainsocket, "long", 0x8004667e, "ulong*", 1) ;FIONBIO
 		If @error Then
 			$bError = -1
 		ElseIf $aRet[0] <> 0 Then ;SOCKET_ERROR
@@ -5276,7 +5451,7 @@ Func __netcode_TCPAccept($iMainsocket)
 		; disable Nagle algorithm for testing https://docs.microsoft.com/en-us/windows/win32/api/winsock/nf-winsock-setsockopt
 		Local $tworkspace = DllStructCreate("BOOLEAN")
 		DllStructSetData($tworkspace, 1, False)
-		$arGen = DllCall($__net_hWs2_32, "int", "setsockopt", "uint", $hSock, "int", 6, "int", 1, "struct*", $tworkspace, "int", DllStructGetSize($tworkspace))
+		Local $arGen = DllCall($__net_hWs2_32, "int", "setsockopt", "uint", $hSock, "int", 6, "int", 1, "struct*", $tworkspace, "int", DllStructGetSize($tworkspace))
 
 	EndIf
 ;~ 	DllClose($hWs2)
