@@ -310,7 +310,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.14"
+Global Const $__net_sNetcodeVersion = "0.1.5.15"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -2574,6 +2574,9 @@ Func __netcode_ExecutePackets(Const $hSocket)
 	Local $nCurrentIndex = _storageS_Read($hSocket, '_netcode_ExecutionIndex')
 	Local $sID = ""
 
+	; if the socket is already gone at this point then as such also is the execution buffer
+	If Not IsArray($arPackages) Then Return __Trace_FuncOut("__netcode_ExecutePackets")
+
 	For $i = $nCurrentIndex To 999
 		If $arPackages[$i][0] = '' Then ExitLoop
 
@@ -2594,8 +2597,8 @@ Func __netcode_ExecutePackets(Const $hSocket)
 
 		$sID &= $i & ','
 
-		$arPackages[$i][0] = ''
-		$arPackages[$i][1] = ''
+;~ 		$arPackages[$i][0] = ''
+;~ 		$arPackages[$i][1] = ''
 
 	Next
 
@@ -3010,26 +3013,23 @@ Func __netcode_ManageNetcode($hSocket, $sPackages)
 
 		$arPackages[$i] = StringTrimRight($arPackages[$i], 10)
 
-		$arPacketContent = StringSplit($arPackages[$i], $sPacketInternalSplit, 1)
-;~ 		_ArrayDisplay($arPacketContent)
 
-		; if packet is not encrypted but it should then see if this is allowed, if not reject
-		If __netcode_SocketGetPacketEncryption($hSocket) Then
-			If $arPacketContent[0] < 2 Then
-				; if allowed
-
-				$arPacketContent = StringSplit(BinaryToString(__netcode_AESDecrypt(StringToBinary($arPackages[$i]), $hPassword), 4), $sPacketInternalSplit, 1)
-
-
-			EndIf
-		Else
-			; check if encrypted but shouldnt be and see if this is allowed, if not reject
-
+		; check if socket has encryption toggled
+		if __netcode_SocketGetPacketEncryption($hSocket) Then
+			$arPackages[$i] = __netcode_AESDecrypt(StringToBinary($arPackages[$i]), $hPassword)
 		EndIf
+
+		; check if socket has compression toggled
+;~ 		if Not IsBinary($arPackages[$i]) Then $arPackages[$i] = StringToBinary($arPackages[$i])
+;~ 		$arPackages[$i] = __netcode_LzntDecompress($arPackages[$i])
+
+		; Split packet into its contents
+		If IsBinary($arPackages[$i]) Then $arPackages[$i] = BinaryToString($arPackages[$i], 4)
+		$arPacketContent = StringSplit($arPackages[$i], $sPacketInternalSplit, 1)
+
 
 		; if $arPacketContent[0] is <> 4 then reject packet
 
-;~ 		if @ScriptName = "Server.au3" Then MsgBox(0, $arPacketContent[1], $arPacketContent[3])
 
 		; maybe the Internal Split string reoccured in the data then merge all elements above [4] into [4]
 		If $arPacketContent[0] > 4 Then
@@ -3043,9 +3043,8 @@ Func __netcode_ManageNetcode($hSocket, $sPackages)
 		; [3] = event
 		; [4] = data
 
-;~ 		_ArrayDisplay($arPacketContent)
 
-;~ 		$arPacketContent[4] = BinaryToString(__netcode_lzntdecompress(StringToBinary($arPacketContent[4])))
+;~ 		_ArrayDisplay($arPacketContent, @ScriptName)
 
 		__netcode_SocketSetRecvPacketPerSecond($hSocket, 1)
 
@@ -3889,14 +3888,18 @@ Func __netcode_CreatePackage(Const $hSocket, $sEvent, $sData)
 	Local $sPackage = $sPacketID & $sPacketInternalSplit & $sValidationHash & $sPacketInternalSplit & $sEvent & $sPacketInternalSplit & $sData
 
 	; compress packet content
-	; ~ todo
+	; ~ todo check for compression flag
+;~ 	$sPackage = __netcode_LzntCompress($sPackage)
 
 	; encrypt packet content
 	If __netcode_SocketGetPacketEncryption($hSocket) Then
 		Local $hPassword = __netcode_SocketGetPacketEncryptionPassword($hSocket)
 
-		$sPackage = BinaryToString(__netcode_AESEncrypt($sPackage, $hPassword))
+		$sPackage = __netcode_AESEncrypt($sPackage, $hPassword)
 	EndIf
+
+	; convert back to string if compression or encryption got used
+	if IsBinary($sPackage) Then $sPackage = BinaryToString($sPackage)
 
 	; wrap the packet content
 	$sPackage = $sPacketBegin & $sPackage & $sPacketEnd
@@ -6219,6 +6222,59 @@ EndFunc   ;==>__netcode_CryptShutdown
 
 ; Stripped down CryptoNG UDF by TheXman@autoitscript.com
 #EndRegion ===========================================================================================================================
+
+; lznt functions from xxxxxxxxxxxxxxxxxxxxxxxxxx idk know yet
+; marked for recoding
+Func __netcode_LzntDecompress($bbinary)
+
+	If Not IsBinary($bbinary) Then $bbinary = Binary($bbinary)
+
+	Local $tinput = DllStructCreate("byte[" & BinaryLen($bbinary) & "]")
+	DllStructSetData($tinput, 1, $bbinary)
+
+;~ 	Local $tbuffer = DllStructCreate("byte[" & 0x40000 & "]") ; 0x40000 taken from UEZ - File to Base64 String Code Generator
+	Local $tbuffer = DllStructCreate("byte[" & $__net_nMaxRecvBufferSize & "]") ; since our packets will never exceed this anyway.. could change when i add the big packet feature
+
+	Local $a_call = DllCall($__net_hInt_ntdll, "int", "RtlDecompressBuffer", "ushort", 2, "ptr", DllStructGetPtr($tbuffer), "dword", DllStructGetSize($tbuffer), "ptr", DllStructGetPtr($tinput), "dword", DllStructGetSize($tinput), "dword*", 0)
+	If @error OR $a_call[0] Then
+		Return SetError(1, 0, "")
+	EndIf
+
+	Return BinaryMid(DllStructGetData($tbuffer, 1), 1, $a_call[6])
+
+EndFunc
+
+Func __netcode_LzntCompress($vinput, $icompressionformatandengine = 2)
+
+	If Not IsBinary($vinput) Then
+		$vinput = StringToBinary($vinput, 4)
+	Else
+		$vinput = Binary($vinput)
+	EndIf
+
+	If NOT ($icompressionformatandengine = 258) Then
+		$icompressionformatandengine = 2
+	EndIf
+
+	Local $tinput = DllStructCreate("byte[" & BinaryLen($vinput) & "]")
+	DllStructSetData($tinput, 1, $vinput)
+
+	Local $a_call = DllCall($__net_hInt_ntdll, "int", "RtlGetCompressionWorkSpaceSize", "ushort", $icompressionformatandengine, "dword*", 0, "dword*", 0)
+	If @error OR $a_call[0] Then
+		Return SetError(1, 0, "")
+	EndIf
+
+	Local $tworkspace = DllStructCreate("byte[" & $a_call[2] & "]")
+	Local $tbuffer = DllStructCreate("byte[" & 16 * DllStructGetSize($tinput) & "]")
+	Local $a_call = DllCall($__net_hInt_ntdll, "int", "RtlCompressBuffer", "ushort", $icompressionformatandengine, "ptr", DllStructGetPtr($tinput), "dword", DllStructGetSize($tinput), "ptr", DllStructGetPtr($tbuffer), "dword", DllStructGetSize($tbuffer), "dword", 4096, "dword*", 0, "ptr", DllStructGetPtr($tworkspace))
+
+	If @error OR $a_call[0] Then
+		Return SetError(2, 0, "")
+	EndIf
+
+	Return BinaryMid(DllStructGetData($tbuffer, 1), 1, $a_call[7])
+
+EndFunc
 
 Func __netcode_TCPCloseSocket($hSocket)
 	__Trace_FuncIn("__netcode_TCPCloseSocket", $hSocket)

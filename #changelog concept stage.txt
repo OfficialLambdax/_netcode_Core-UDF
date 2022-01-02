@@ -1,3 +1,15 @@
+02.01.2022 (DD/MM/YYYY) 0.1.5.15
+
+	Fixed
+		- __netcode_ExecutePackets() could crash in the event of a disconnect. An additional
+		check is implemented to prevent that from happening
+		
+	Changed
+		- __netcode_CreatePackage() and __netcode_ManageNetcode() a little to run tests with
+		lznt compression. Compression not implemented yet.
+
+
+
 01.01.2022 (DD/MM/YYYY) 0.1.5.14
 	
 	Fixed
