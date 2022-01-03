@@ -92,7 +92,7 @@ Func _Internal_UploadFile($sFilePath)
 			Return
 		EndIf
 
-		; manually convert responde to Bool, since _netcode_sParams() cant do that
+		; manually convert respond to Bool, since _netcode_sParams() cant do that
 		$arResponse[2] = __netcode_SetVarType($arResponse[2], "Bool")
 
 		; check response
@@ -119,8 +119,6 @@ Func _Internal_UploadFile($sFilePath)
 		; cut file name according to the file upload mode
 		if $__bFolderUpload Then
 			$sFilePath = StringTrimLeft($sFilePath, StringLen($__sfFolderPath) + 1)
-
-;~ 			MsgBox(0, "", $sFilePath)
 		Else
 			$sFilePath = StringTrimLeft($sFilePath, StringInStr($sFilePath, '\', 0, -1))
 		EndIf
@@ -132,7 +130,7 @@ Func _Internal_UploadFile($sFilePath)
 			Return FileClose($hFileHandle)
 		EndIf
 
-		; manually convert responde to Bool, since _netcode_sParams() cant do that
+		; manually convert respond to Bool, since _netcode_sParams() cant do that
 		$arResponse[2] = __netcode_SetVarType($arResponse[2], "Bool")
 
 		; check if server denies upload
@@ -177,6 +175,8 @@ Func _Internal_UploadFile($sFilePath)
 			ConsoleWrite("Uploading Progress " & Round(($nProgress / $nFileSize) * 100, 0) & "%" & @TAB & @TAB & "of " & Round($nFileSize / 1048576, 2) & " MB" & @TAB & @TAB & "@ " & _netcode_SocketGetSendBytesPerSecond($__hMyConnectClient, 2) & " MB/s - " & $sFilePath & @CRLF)
 
 		WEnd
+
+		FileClose($hFileHandle)
 
 		; tell server that we are done uploading
 		_netcode_TCPSend($__hMyConnectClient, 'DownloadFinished')
