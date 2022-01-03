@@ -310,7 +310,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.15"
+Global Const $__net_sNetcodeVersion = "0.1.5.16"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -1443,6 +1443,58 @@ Func _netcode_GetDynamicPacketContentSize(Const $hSocket)
 
 EndFunc   ;==>_netcode_GetDynamicPacketContentSize
 #ce
+
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SocketSetVar
+; Description ...: Sets Custom data for your own usage to a Socket
+; Syntax ........: _netcode_SocketSetVar(Const $hSocket, $sName, $vData)
+; Parameters ....: $hSocket             - [const] The Socket
+;                  $sName               - Variable name (case-sensitive)
+;                  $vData               - data of any kind
+; Return values .: True					= Success
+;				   False				= Failure
+; Errors ........: 1					= If the socket is not known to _netcode
+; Modified ......:
+; Remarks .......: Data is kept within _netcode until the socket is removed or released from _netcode.
+;				   In the case of a disconnect, you will still be able to access the data in your disconnect event.
+;				   Right after, it will be removed.
+;				   You can name the Variable however you want.
+; Example .......: No
+; ===============================================================================================================================
+Func _netcode_SocketSetVar(Const $hSocket, $sName, $vData)
+	if __netcode_CheckSocket($hSocket) = 0 Then Return SetError(1, 0, False)
+
+	$sName = StringToBinary('_netcode_custom_' & $sName, 4)
+	_storageS_Overwrite($hSocket, $sName, $vData)
+
+	Return True
+EndFunc
+
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_SocketGetVar
+; Description ...: Returns the Data, previously set with _netcode_SocketSetVar()
+; Syntax ........: _netcode_SocketGetVar(Const $hSocket, $sName)
+; Parameters ....: $hSocket             - [const] The socket
+;                  $sName               - Variable name (case-sensitive)
+; Return values .: Your data
+; 				 : Null					= No Data available
+; Errors ........: 1					= If the socket is not known to _netcode
+; Modified ......:
+; Remarks .......: If the variable wasnt set yet or got already removed then the return is always Null.
+; Example .......: No
+; ===============================================================================================================================
+Func _netcode_SocketGetVar(Const $hSocket, $sName)
+	if __netcode_CheckSocket($hSocket) = 0 Then Return SetError(1, 0, Null)
+
+	$sName = StringToBinary('_netcode_custom_' & $sName, 4)
+	Local $sData = _storageS_Read($hSocket, $sName)
+
+	if @error Then Return SetError(1, 0, Null)
+	Return $sData
+
+EndFunc
 
 
 ; #FUNCTION# ====================================================================================================================
@@ -3698,6 +3750,10 @@ Func __netcode_ExecuteEvent(Const $hSocket, $sEvent, $sData = '')
 ;~ 	EndIf
 
 ;~ 	ConsoleWrite(@TAB & @TAB & BinaryToString($sEvent) & @CRLF)
+
+;~ 	if BinaryToString($sEvent) = 'netcode_internal' Then
+;~ 		MsgBox(0, @ScriptName, $sCallback)
+;~ 	EndIf
 
 	; convert params to array, and also unmerge them if _netcode_sParams() is used, for Call()
 	Local $arParams = __netcode_sParams_2_arParams($hSocket, $sData)

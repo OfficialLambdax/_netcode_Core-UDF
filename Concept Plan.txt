@@ -1,5 +1,5 @@
 
-Concept Phase Todo list as of 12.28.2021 (MM.DD.YYYY)
+Concept Phase Todo list as of 01.03.2022 (MM.DD.YYYY)
 	
 	- Inheritation System
 	
@@ -332,3 +332,23 @@ Concept Phase Todo list as of 12.28.2021 (MM.DD.YYYY)
 		Various _netcode system should also be extensively described and shown. So that experienced devs can
 		give feedback or more likely get to use _netcode. A high community usage obviously would make the UDF
 		better and better over time and benefit the whole community.
+		
+	
+	- Priotizer abilities
+	
+		A dev should get the ability to give sockets a higher priority. So that priotized sockets
+		are looped more often then the others. This could either be done with a simple True / False Flag
+		or with incrementing numbers. The higher the number the more often the socket is run.
+		
+		A dev could be able to give every new socket the lowest priority, so that those cannot at will affect the
+		server performance. And once a socket is staged through or called the right events a dev could highten
+		the priotizement.
+		
+		Overall _netcode should provide the right priotizement algo, so that the dev only has to
+		call _netcode_Loop() and thats it. The whole feature should be optional.
+		
+		In the end, if deployed right, this feature could strenghten the UDF against ddos to a degree.
+		
+		I have to figure out if it makes more sense to run all sockets with 'select' and then
+		priotize or before the 'select' call.
+		

@@ -1,3 +1,13 @@
+03.01.2022 (DD/MM/YYYY) 0.1.5.16
+
+	Added
+		- _netcode_SocketSetVar() and _netcode_SocketGetVar() which allows custom data, of any kind, to
+		be set to a Socket. The data is removed once the socket is removed or released from _netcode,
+		but is still accessible within the disconnect event.
+		
+		- A new File Transfer example in .\examples\file send\netcode
+
+
 02.01.2022 (DD/MM/YYYY) 0.1.5.15
 
 	Fixed
