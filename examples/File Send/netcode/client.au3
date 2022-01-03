@@ -6,7 +6,7 @@
 #include "..\..\..\_netcode_Core.au3"
 
 
-Global $__sConnectToIP = '127.0.0.1'
+Global $__sConnectToIP = InputBox("Server IP", "Set Server IP", '127.0.0.1')
 Global $__sConnectToPort = '1225'
 
 ; =========================================================================
@@ -56,8 +56,7 @@ For $i = 0 To UBound($__arFiles) - 1
 	if __netcode_CheckSocket($__hMyConnectClient) = 0 Then Exit MsgBox(16, "Disconnected", "Disconnected from Server. Aborting Upload")
 Next
 
-; giving the server the chance to process the last packet
-Sleep(1000)
+; program end
 
 
 ; =========================================================================
@@ -179,10 +178,11 @@ Func _Internal_UploadFile($sFilePath)
 		FileClose($hFileHandle)
 
 		; tell server that we are done uploading
-		_netcode_TCPSend($__hMyConnectClient, 'DownloadFinished')
-
-		; send data
-		_netcode_Loop($__hMyConnectClient)
+		$arResponse = _netcode_UseNonCallbackEvent($__hMyConnectClient, 'RegisterResponse', 'DownloadFinished')
+		if @error Then
+			; server didnt answer in time
+			Return
+		EndIf
 
 		Return
 

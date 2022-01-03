@@ -140,6 +140,8 @@ Func _Event_DownloadFinished(Const $hSocket)
 
 	FileClose($hFileHandle)
 	_netcode_SocketSetVar($hSocket, "FileDownloadHandle", Null)
+
+	_netcode_TCPSend($hSocket, 'RegisterResponse', "True")
 EndFunc
 
 ; closes and deletes files from an abrupted disconnect
