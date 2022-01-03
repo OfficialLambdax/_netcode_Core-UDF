@@ -7,6 +7,7 @@
 
 
 Global $__sConnectToIP = InputBox("Server IP", "Set Server IP", '127.0.0.1')
+if @error Then Exit
 Global $__sConnectToPort = '1225'
 
 ; =========================================================================
@@ -52,7 +53,7 @@ EndIf
 
 
 For $i = 0 To UBound($__arFiles) - 1
-	_Internal_UploadFile($__arFiles[$i])
+	_Internal_UploadFile($__arFiles[$i], $i)
 	if __netcode_CheckSocket($__hMyConnectClient) = 0 Then Exit MsgBox(16, "Disconnected", "Disconnected from Server. Aborting Upload")
 Next
 
@@ -70,7 +71,7 @@ EndFunc
 ; =========================================================================
 ; Internals
 
-Func _Internal_UploadFile($sFilePath)
+Func _Internal_UploadFile($sFilePath, $nIndex)
 
 	if StringRight($sFilePath, 1) = '\' Then ; if folder
 
@@ -84,7 +85,7 @@ Func _Internal_UploadFile($sFilePath)
 		EndIf
 
 		; register upload of folder
-		Local $arResponse = _netcode_UseNonCallbackEvent($__hMyConnectClient, 'RegisterResponse', 'RegisterDownload', _netcode_sParams($sFilePath, 0))
+		Local $arResponse = _netcode_UseNonCallbackEvent($__hMyConnectClient, 'RegisterResponse', 'RegisterDownload', _netcode_sParams(StringToBinary($sFilePath, 4), 0))
 		if @error Then
 			; error while requesting folder creation
 
@@ -99,7 +100,13 @@ Func _Internal_UploadFile($sFilePath)
 			; folder created successfully
 		Else
 			; folder couldnt be created
+
+			Return
 		EndIf
+
+		$sFilePath = StringTrimLeft($sFilePath, StringInStr($sFilePath, '\', 0, -1))
+
+		ConsoleWrite($nIndex & '/' & UBound($__arFiles) & @TAB & $sFilePath & @CRLF)
 
 		Return
 
@@ -123,7 +130,7 @@ Func _Internal_UploadFile($sFilePath)
 		EndIf
 
 		; register upload of file
-		Local $arResponse = _netcode_UseNonCallbackEvent($__hMyConnectClient, 'RegisterResponse', 'RegisterDownload', _netcode_sParams($sFilePath, $nFileSize))
+		Local $arResponse = _netcode_UseNonCallbackEvent($__hMyConnectClient, 'RegisterResponse', 'RegisterDownload', _netcode_sParams(StringToBinary($sFilePath, 4), $nFileSize))
 		if @error Then
 			; error while requesting a file upload
 			Return FileClose($hFileHandle)
@@ -171,7 +178,7 @@ Func _Internal_UploadFile($sFilePath)
 
 			$nProgress += $nBytesLastRead
 
-			ConsoleWrite("Uploading Progress " & Round(($nProgress / $nFileSize) * 100, 0) & "%" & @TAB & @TAB & "of " & Round($nFileSize / 1048576, 2) & " MB" & @TAB & @TAB & "@ " & _netcode_SocketGetSendBytesPerSecond($__hMyConnectClient, 2) & " MB/s - " & $sFilePath & @CRLF)
+			ConsoleWrite($nIndex & '/' & UBound($__arFiles) & " Uploading Progress " & Round(($nProgress / $nFileSize) * 100, 0) & "%" & @TAB & @TAB & "of " & Round($nFileSize / 1048576, 2) & " MB" & @TAB & @TAB & "@ " & _netcode_SocketGetSendBytesPerSecond($__hMyConnectClient, 2) & " MB/s - " & $sFilePath & @CRLF)
 
 		WEnd
 

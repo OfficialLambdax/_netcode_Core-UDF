@@ -12,7 +12,7 @@ Global $__sAccessIP = '0.0.0.0'
 Global $__sAccessPort = '1225'
 Global $__nHowManyClientsAreAllowedAtOnce = 10
 Global $__sfDownloadPath = @ScriptDir & "\Downloads"
-Global $__bUseEncryption = False
+Global $__bUseEncryption = True
 Global $__bDenyOverwritingOfExistingFiles = False
 
 
@@ -66,6 +66,10 @@ WEnd
 
 ; registers a download from the client and opens a file handle
 Func _Event_RegisterDownload(Const $hSocket, $sFileName, $nFileSize)
+
+	; convert filename back
+	$sFileName = BinaryToString($sFileName, 4)
+
 	if StringLen($sFileName) > 100 Then
 		; file name to long
 		_netcode_TCPSend($hSocket, 'RegisterResponse', "False")
