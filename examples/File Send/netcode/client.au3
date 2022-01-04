@@ -5,6 +5,12 @@
 #EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
 #include "..\..\..\_netcode_Core.au3"
 
+#cs
+
+
+#ce
+
+
 
 Global $__sConnectToIP = InputBox("Server IP", "Set Server IP", '127.0.0.1')
 if @error Then Exit
@@ -53,6 +59,7 @@ EndIf
 
 
 For $i = 0 To UBound($__arFiles) - 1
+	_netcode_TCPSend($__hMyConnectClient, 'FilesAmount', $i & '/' & UBound($__arFiles))
 	_Internal_UploadFile($__arFiles[$i], $i)
 	if __netcode_CheckSocket($__hMyConnectClient) = 0 Then Exit MsgBox(16, "Disconnected", "Disconnected from Server. Aborting Upload")
 Next

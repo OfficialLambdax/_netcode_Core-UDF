@@ -5,6 +5,10 @@
 #EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
 #include "..\..\..\_netcode_Core.au3"
 
+#cs
+
+
+#ce
 
 
 
@@ -36,6 +40,7 @@ _netcode_SetOption($__hMyParent, "Encryption", $__bUseEncryption)
 _netcode_SetEvent($__hMyParent, 'RegisterDownload', "_Event_RegisterDownload")
 _netcode_SetEvent($__hMyParent, 'Download', "_Event_Download")
 _netcode_SetEvent($__hMyParent, 'DownloadFinished', "_Event_DownloadFinished")
+_netcode_SetEvent($__hMyParent, 'FilesAmount', "_Event_FilesAmount")
 
 ; priotize these events over the default events
 _netcode_SetEvent($__hMyParent, 'disconnected', "_Event_Disconnect")
@@ -63,6 +68,12 @@ WEnd
 
 ; =========================================================================
 ; Parent Events
+
+Func _Event_FilesAmount(Const $hSocket, $sText)
+	if StringLen($sText) > 10 Then Return
+
+	_netcode_SocketSetVar($hSocket, "FilesProgress", $sText)
+EndFunc
 
 ; registers a download from the client and opens a file handle
 Func _Event_RegisterDownload(Const $hSocket, $sFileName, $nFileSize)
@@ -217,9 +228,11 @@ Func _Internal_ServerStatus()
 
 	Local $nFileSize = 0
 	Local $nFileProgress = 0
+	Local $sText = ""
 
 	For $i = 0 To UBound($arClients) - 1
-		If _netcode_SocketGetVar($arClients[$i], "FileDownloadHandle") = Null Then
+;~ 		If _netcode_SocketGetVar($arClients[$i], "FileDownloadHandle") = Null Then
+		If _netcode_SocketGetVar($arClients[$i], "FilesProgress") = Null Then
 			Local $nBytesPerSecond = _netcode_SocketGetRecvBytesPerSecond($arClients[$i], 2)
 			if $nBytesPerSecond > 0 Then
 				ConsoleWrite(@TAB & "Socket @ " & $arClients[$i] & " is active with " & $nBytesPerSecond & " MB/s" & @CRLF)
@@ -229,8 +242,10 @@ Func _Internal_ServerStatus()
 		Else
 			$nFileSize = _netcode_SocketGetVar($arClients[$i], "FileDownloadSize")
 			$nFileProgress = _netcode_SocketGetVar($arClients[$i], "FileDownloadProgress")
+			$sText = _netcode_SocketGetVar($arClients[$i], "FilesProgress")
 
-			ConsoleWrite(@TAB & "Socket @ " & $arClients[$i] & " - Progress " & $nFileProgress & "%" & @TAB & "of " & Round($nFileSize / 1048576, 2) & " MB" & @TAB & @TAB & _netcode_SocketGetRecvBytesPerSecond($arClients[$i], 2) & " MB/s" & @CRLF)
+;~ 			ConsoleWrite(@TAB & "Socket @ " & $arClients[$i] & " - Progress " & $nFileProgress & "%" & @TAB & "of " & Round($nFileSize / 1048576, 2) & " MB" & @TAB & @TAB & _netcode_SocketGetRecvBytesPerSecond($arClients[$i], 2) & " MB/s" & @CRLF)
+			ConsoleWrite(@TAB & "Socket @ " & $arClients[$i] & " - Files " & $sText & @TAB & "Current (" & $nFileProgress & "%) of " & Round($nFileSize / 1048576, 2) & " MB" & @TAB & @TAB & _netcode_SocketGetRecvBytesPerSecond($arClients[$i], 2) & " MB/s" & @CRLF)
 		EndIf
 	Next
 
