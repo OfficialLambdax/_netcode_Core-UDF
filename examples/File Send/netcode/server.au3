@@ -12,7 +12,7 @@ Global $__sAccessIP = '0.0.0.0'
 Global $__sAccessPort = '1225'
 Global $__nHowManyClientsAreAllowedAtOnce = 10
 Global $__sfDownloadPath = @ScriptDir & "\Downloads"
-Global $__bUseEncryption = True
+Global $__bUseEncryption = False
 Global $__bDenyOverwritingOfExistingFiles = False
 
 
@@ -157,7 +157,19 @@ Func _Event_Disconnect(Const $hSocket, $nDisconnectError, $bDisconnectTriggered)
 		FileDelete(_netcode_SocketGetVar($hSocket, "FileDownloadPath"))
 	EndIf
 
-	ConsoleWrite("Client @ " & $hSocket & " disconnected" & @CRLF)
+	Local $sText = ""
+
+	Switch $nDisconnectError
+
+		Case 0
+			$sText = "gracefully"
+
+		Case 10050 To 10054
+			$sText = "abruptly"
+
+	EndSwitch
+
+	ConsoleWrite("Client @ " & $hSocket & " " & $sText & " disconnected" & @CRLF)
 EndFunc
 
 ; just a display notice

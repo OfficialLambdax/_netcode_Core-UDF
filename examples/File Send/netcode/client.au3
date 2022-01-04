@@ -58,7 +58,7 @@ For $i = 0 To UBound($__arFiles) - 1
 Next
 
 ; program end
-
+_netcode_Shutdown()
 
 ; =========================================================================
 ; Events
