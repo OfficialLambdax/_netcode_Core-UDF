@@ -1,3 +1,13 @@
+03.01.2022 (DD/MM/YYYY) 0.1.5.17
+
+	Fixed
+		- __netcode_SetVarType() couldnt convert a "True" or "False" string into Bool if the string was
+		any different from "True" or "False", like "true", "TRUE" etc. This is fixed.
+	
+	Added
+		- _netcode_Shutdown(). Will disconnect every known socket and close every opened dll.
+
+
 03.01.2022 (DD/MM/YYYY) 0.1.5.16
 
 	Added

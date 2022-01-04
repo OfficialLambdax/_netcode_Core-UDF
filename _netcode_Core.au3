@@ -300,6 +300,7 @@ Global $__net_hInt_hRSAAlgorithmProvider = -1 ; RSA provider handle
 Global $__net_hInt_hSHAAlgorithmProvider = -1 ; SHA provider handle
 Global $__net_nInt_CryptionIterations = 1000 ; i have to research the topic of Iterations
 Global $__net_nInt_RecursionCounter = -1 ; starting at -1
+Global $__net_bNetcodeStarted = False
 __netcode_SRandomTemporaryFix()
 
 ; ===================================================================================================================================================
@@ -310,11 +311,15 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.16"
+Global Const $__net_sNetcodeVersion = "0.1.5.17"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
 __netcode_EventStrippingFix()
+
+; ===================================================================================================================================================
+; User Defined Functions start
+
 
 ; #FUNCTION# ====================================================================================================================
 ; Name ..........: _netcode_Startup
@@ -323,6 +328,7 @@ __netcode_EventStrippingFix()
 ; Parameters ....: None
 ; Return values .: None
 ; Modified ......:
+; Remarks .......:
 ; ===============================================================================================================================
 Func _netcode_Startup()
 	__Trace_FuncIn("_netcode_Startup")
@@ -330,9 +336,19 @@ Func _netcode_Startup()
 	__Trace_FuncOut("_netcode_Startup")
 EndFunc   ;==>_netcode_Startup
 
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_Shutdown
+; Description ...: Shutsdown _netcode and closes every known socket.
+; Syntax ........: _netcode_Shutdown()
+; Parameters ....: None
+; Return values .: None
+; Modified ......:
+; Remarks .......: With every socket disconnect also the disconnected event will be called.
+; ===============================================================================================================================
 Func _netcode_Shutdown()
 	__Trace_FuncIn("_netcode_Shutdown")
-	; todo
+	__netcode_Shutdown()
 	__Trace_FuncOut("_netcode_Shutdown")
 EndFunc   ;==>_netcode_Shutdown
 
@@ -1169,6 +1185,10 @@ EndFunc
 
  be aware this feature is either being removed (unlikely), exported or rewritten, because as of yet i am not sure about the
  design and safety of this feature.
+
+ Edit:
+ This function and its subparts is going to be removed and replaced with the Sub Stream feature.
+ Additional informations about it can be read in .\Concept Plan.txt
 #ce
 ; #FUNCTION# ====================================================================================================================
 ; Name ..........: _netcode_SetupSocketLink
@@ -4769,8 +4789,7 @@ EndFunc
 
 Func __netcode_Init()
 	__Trace_FuncIn("__netcode_Init")
-	Local Static $bInit = False
-	If $bInit Then Return __Trace_FuncOut("__netcode_Init")
+	If $__net_bNetcodeStarted Then Return __Trace_FuncOut("__netcode_Init")
 
 	TCPStartup()
 	; _WinAPI_Wow64EnableWow64FsRedirection - "C:\Windows\Sysnative\ws2_32.dll"
@@ -4789,9 +4808,69 @@ Func __netcode_Init()
 	_netcode_PresetEvent("message", "__netcode_EventMessage")
 	_netcode_PresetEvent("netcode_internal", "__netcode_EventInternal")
 
-	$bInit = True
+	$__net_bNetcodeStarted = True
 	__Trace_FuncOut("__netcode_Init")
 EndFunc   ;==>__netcode_Init
+
+Func __netcode_Shutdown()
+	__Trace_FuncIn("__netcode_Shutdown")
+	if Not $__net_bNetcodeStarted Then Return __Trace_FuncOut("__netcode_Shutdown")
+
+	; check for known parent sockets
+	Local $nArSize = UBound($__net_arSockets)
+	if $nArSize > 0 Then
+
+		Local $arClients[0]
+		Local $arParents = $__net_arSockets
+
+		; for every parent socket
+		For $i = 0 To $nArSize - 1
+
+			; check for client sockets
+			$arClients = __netcode_ParentGetClients($arParents[$i])
+			if UBound($arClients) > 0 Then
+
+				; for every client socket
+				For $iS = 0 To UBound($arClients) - 1
+
+					; disconnect the client socket
+					_netcode_TCPDisconnect($arClients[$iS])
+
+				Next
+
+			EndIf
+
+			; close the parent socket if its not the '000' socket
+			if $arParents[$i] <> '000' Then _netcode_TCPDisconnect($arParents[$i])
+
+		Next
+
+	EndIf
+
+
+	; remove default events
+	_netcode_PresetEvent("connection", "", False)
+	_netcode_PresetEvent("disconnected", "", False)
+	_netcode_PresetEvent("flood", "", False)
+	_netcode_PresetEvent("banned", "", False)
+	_netcode_PresetEvent("message", "", False)
+	_netcode_PresetEvent("netcode_internal", "", False)
+
+	; close cryptography provider
+	__netcode_CryptShutdown()
+
+	; close dlls
+	DllClose($__net_hWs2_32)
+	$__net_hWs2_32 = False
+
+	; close autoits tcpstartup
+	TCPShutdown()
+
+	; set startup flag to false
+	$__net_bNetcodeStarted = False
+
+	__Trace_FuncOut("__netcode_Shutdown")
+EndFunc
 
 ; default string seeding
 Func __netcode_Seeding($nSeed = $__net_nNetcodeStringDefaultSeed)
@@ -5077,17 +5156,17 @@ EndFunc
 
 ; this functions only sets the var type, it doesnt convert the data
 ; so a String var, ment to be set to Binary, wont be set with StringToBinary() it will just be set with Binary()
-; Setting the vartype to Bool wont work with "false" or "true", only with "False" or "True"
 Func __netcode_SetVarType($vData, $sVarType)
 	__Trace_FuncIn("__netcode_SetVarType", "$vData", $sVarType)
 
 	Switch $sVarType
 
 		Case "Bool"
-			If $vData == "False" Then Return __Trace_FuncOut("__netcode_SetVarType", False)
-			If $vData == "True" Then Return __Trace_FuncOut("__netcode_SetVarType", True)
+			$vData = StringUpper($vData)
+			If $vData == "FALSE" Then Return __Trace_FuncOut("__netcode_SetVarType", False)
+			If $vData == "TRUE" Then Return __Trace_FuncOut("__netcode_SetVarType", True)
 
-			__Trace_Error(2, 0, "Neither True not False was given", "", $vData)
+			__Trace_Error(2, 0, "Neither True nor False was given", "", $vData)
 			Return SetError(2, 0, __Trace_FuncOut("__netcode_SetVarType", False)) ; neither True nor False was given
 
 		Case "Int32"
@@ -5189,66 +5268,64 @@ EndFunc
 ; marked for recoding. i have to find the best way to use send() or wsasend()
 Func __netcode_TCPSend($hSocket, $sData, $bReturnWhenDone = True) ; TCPSend
 	__Trace_FuncIn("__netcode_TCPSend", $hSocket, "$sData")
-;~ 	$sData = BinaryToString($sData)
+
 	Local $nLen = BinaryLen($sData)
-;~ 	Local $nLen = StringLen($sData)
 
-	If $__net_hWs2_32 = -1 Then $__net_hWs2_32 = DllOpen("Ws2_32.dll")
-
+	; fill struct with data that is to be send
 	Local $stAddress_Data = DllStructCreate('byte[' & $nLen & ']')
-;~ 	Local $stAddress_Data = DllStructCreate('char[' & $nLen & ']')
 	DllStructSetData($stAddress_Data, 1, $sData)
 
-;~ 	Local $hTimer = TimerInit()
-;~ 	Local $nTookTimer = 0
 	Local $arRet[0]
 	Local $nError = 0
 
+	; send loop
 	Do
-		; ~ performance tests
-;~ 		$arRet = DllCall($__net_hWs2_32, "int", "send", "ptr", $hSocket, "ptr", DllStructGetPtr($stAddress_Data), "int", DllStructGetSize($stAddress_Data), "int", 0)
-;~ 		$arRet = DllCall($__net_hWs2_32, "int", "send", "int", $hSocket, "ptr", DllStructGetPtr($stAddress_Data), "int", DllStructGetSize($stAddress_Data), "int", 0)
-		$arRet = DllCall($__net_hWs2_32, "int", "send", "int", $hSocket, "struct*", $stAddress_Data, "int", DllStructGetSize($stAddress_Data), "int", 0)
-;~ 		$nTookTimer = TimerDiff($hTimer)
 
+		; call ws2 to send the data
+		$arRet = DllCall($__net_hWs2_32, "int", "send", "int", $hSocket, "struct*", $stAddress_Data, "int", DllStructGetSize($stAddress_Data), "int", 0)
+
+		; if instantly send then exitloop
 		If $arRet[0] <> -1 Then ExitLoop
 
+		; get error code
 		$nError = __netcode_WSAGetLastError()
 
+		; if code is "Would Block" and the func is set to continue until data is successfully send then Continueloop
 		if $bReturnWhenDone And $nError = 10035 Then ContinueLoop
+
+		; otherwise exitloop the loop if the error is <> 1400
 	Until $nError <> 1400
 
-;~ 	if $nError Then MsgBox(0, @ScriptName, $nError)
-;~ 	if $nError Then _ArrayDisplay($arRet)
-
+	; check the error
 	If $nError And $arRet[0] = -1 Then
-;~ 	If $nError Or $arRet[0] = -1 Then
+
+		; if it wasnt the "Would Block" error then log it
 		if $nError <> 10035 Then __Trace_Error($nError, 0)
+
+		; then return with the error
 		Return SetError($nError, 0, __Trace_FuncOut("__netcode_TCPSend", 0))
 	EndIf
 
-;~ 	__netcode_SocketSetSendBytesPerSecond($hSocket, $arRet[0], $nTookTimer)
-
+	; return no error and the amount of bytes that where send
 	Return __Trace_FuncOut("__netcode_TCPSend", $arRet[0])
 
 EndFunc   ;==>__netcode_TCPSend
 
 Func __netcode_WSAGetLastError()
-;~ 	__Trace_FuncIn("__netcode_WSAGetLastError")
 	If $__net_hWs2_32 = -1 Then $__net_hWs2_32 = DllOpen("Ws2_32.dll")
 	Local $iRet = DllCall($__net_hWs2_32, "int", "WSAGetLastError")
 	If @error Then
-		SetExtended(1)
-;~ 		Return __Trace_FuncOut("__netcode_WSAGetLastError", 0)
-		Return 0
+		Return SetError(0, 1, 0)
 	EndIf
-;~ 	Return __Trace_FuncOut("__netcode_WSAGetLastError", $iRet[0])
 	Return $iRet[0]
 EndFunc   ;==>__netcode_WSAGetLastError
 
 ; TCPRecv
 ; WSAGetLastError() sometimes returns error 5
 ; https://www.gamedev.net/forums/topic/399027-wsagetlasterror-returns-5-what-does-this-mean-solved/
+; marked for recoding
+; the func should become a second param saying how much data, per call, to extract.
+; generally _netcode should empty the windows buffer with a single call. The size of the windows buffer should be set to the sockets max buffer.
 Func __netcode_TCPRecv(Const $hSocket)
 	__Trace_FuncIn("__netcode_TCPRecv", $hSocket)
 
