@@ -4,6 +4,7 @@
 #AutoIt3Wrapper_Change2CUI=y
 #EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
 #include "..\..\..\_netcode_Core.au3"
+#include <Array.au3>
 
 #cs
 
@@ -22,6 +23,8 @@ Global $__sConnectToPort = '1225'
 Global $__arFiles[1]
 Global $__bFolderUpload = False
 Global $__sfFolderPath = ""
+Local $arErrors[0]
+Local $nArSize = 0
 
 _netcode_Startup()
 
@@ -52,20 +55,36 @@ if $rMsgBox = 6 Then ; if folder select
 
 Else ; if single file select
 
-	$__arFiles[0] = FileOpenDialog("Select File", @ScriptDir, "All (*.*)")
+	ReDim $__arFiles[2]
+	$__arFiles[0] = 1
+	$__arFiles[1] = FileOpenDialog("Select File", @ScriptDir, "All (*.*)")
 	if @error Then Exit
 
 EndIf
 
+For $i = 1 To UBound($__arFiles) - 1
 
-For $i = 0 To UBound($__arFiles) - 1
-	_netcode_TCPSend($__hMyConnectClient, 'FilesAmount', $i & '/' & UBound($__arFiles))
-	_Internal_UploadFile($__arFiles[$i], $i)
+	; tell the server our progress
+	_netcode_TCPSend($__hMyConnectClient, 'FilesAmount', $i - 1 & '/' & UBound($__arFiles) - 1)
+
+	; upload file
+	if Not _Internal_UploadFile($__arFiles[$i], $i) Then
+		$nArSize = UBound($arErrors)
+		ReDim $arErrors[$nArSize + 1]
+		$arErrors[$nArSize] = $__arFiles[$i]
+	EndIf
+
+	; check our connection to the server
 	if __netcode_CheckSocket($__hMyConnectClient) = 0 Then Exit MsgBox(16, "Disconnected", "Disconnected from Server. Aborting Upload")
 Next
 
-; program end
+; stop _netcode
 _netcode_Shutdown()
+
+; show failed uploads
+if UBound($arErrors) > 0 Then
+	_ArrayDisplay($arErrors, "Failed Uploads")
+EndIf
 
 ; =========================================================================
 ; Events
@@ -96,7 +115,7 @@ Func _Internal_UploadFile($sFilePath, $nIndex)
 		if @error Then
 			; error while requesting folder creation
 
-			Return
+			Return False
 		EndIf
 
 		; manually convert respond to Bool, since _netcode_sParams() cant do that
@@ -108,14 +127,14 @@ Func _Internal_UploadFile($sFilePath, $nIndex)
 		Else
 			; folder couldnt be created
 
-			Return
+			Return False
 		EndIf
 
 		$sFilePath = StringTrimLeft($sFilePath, StringInStr($sFilePath, '\', 0, -1))
 
 		ConsoleWrite($nIndex & '/' & UBound($__arFiles) & @TAB & $sFilePath & @CRLF)
 
-		Return
+		Return True
 
 	Else ; if file
 
@@ -123,7 +142,7 @@ Func _Internal_UploadFile($sFilePath, $nIndex)
 		Local $hFileHandle = FileOpen($sFilePath, 16)
 		if $hFileHandle = -1 Then
 			; couldnt open the file in read mode
-			Return
+			Return False
 		EndIf
 
 		; save how large the file is
@@ -140,7 +159,8 @@ Func _Internal_UploadFile($sFilePath, $nIndex)
 		Local $arResponse = _netcode_UseNonCallbackEvent($__hMyConnectClient, 'RegisterResponse', 'RegisterDownload', _netcode_sParams(StringToBinary($sFilePath, 4), $nFileSize))
 		if @error Then
 			; error while requesting a file upload
-			Return FileClose($hFileHandle)
+			FileClose($hFileHandle)
+			Return False
 		EndIf
 
 		; manually convert respond to Bool, since _netcode_sParams() cant do that
@@ -149,7 +169,8 @@ Func _Internal_UploadFile($sFilePath, $nIndex)
 		; check if server denies upload
 		if Not $arResponse[2] Then
 			; server denied upload
-			Return FileClose($hFileHandle)
+			FileClose($hFileHandle)
+			Return False
 		EndIf
 
 		; ready variables for upload
@@ -179,13 +200,13 @@ Func _Internal_UploadFile($sFilePath, $nIndex)
 
 				; if we lost connection to the server
 				FileClose($hFileHandle)
-				Return
+				Return False
 
 			EndIf
 
 			$nProgress += $nBytesLastRead
 
-			ConsoleWrite($nIndex & '/' & UBound($__arFiles) & " Uploading Progress " & Round(($nProgress / $nFileSize) * 100, 0) & "%" & @TAB & @TAB & "of " & Round($nFileSize / 1048576, 2) & " MB" & @TAB & @TAB & "@ " & _netcode_SocketGetSendBytesPerSecond($__hMyConnectClient, 2) & " MB/s - " & $sFilePath & @CRLF)
+			ConsoleWrite($nIndex - 1 & '/' & UBound($__arFiles) - 1 & " Uploading Progress " & Round(($nProgress / $nFileSize) * 100, 0) & "%" & @TAB & @TAB & "of " & Round($nFileSize / 1048576, 2) & " MB" & @TAB & @TAB & "@ " & _netcode_SocketGetSendBytesPerSecond($__hMyConnectClient, 2) & " MB/s - " & $sFilePath & @CRLF)
 
 		WEnd
 
@@ -195,10 +216,10 @@ Func _Internal_UploadFile($sFilePath, $nIndex)
 		$arResponse = _netcode_UseNonCallbackEvent($__hMyConnectClient, 'RegisterResponse', 'DownloadFinished')
 		if @error Then
 			; server didnt answer in time
-			Return
+			Return False
 		EndIf
 
-		Return
+		Return True
 
 	EndIf
 EndFunc

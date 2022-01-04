@@ -129,6 +129,7 @@ Func _Event_RegisterDownload(Const $hSocket, $sFileName, $nFileSize)
 	_netcode_SocketSetVar($hSocket, "FileDownloadProgressSize", 0) ; bytes received
 	_netcode_SocketSetVar($hSocket, "FileDownloadProgress", 0) ; percentage
 
+
 	_netcode_TCPSend($hSocket, 'RegisterResponse', "True")
 EndFunc
 
