@@ -3255,8 +3255,7 @@ Func __netcode_SendPacketQuo()
 		; send non-blocking
 ;~ 		$sData = StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo'), 4) ; Reverted - Fix from 1.5.10
 		$sData = StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo'))
-;~ 		__netcode_TCPSend($arTempSendQuo[$i], $sData, False)
-		__netcode_TCPSend($arTempSendQuo[$i], $sData, True)
+		__netcode_TCPSend($arTempSendQuo[$i], $sData, False)
 		$nError = @error
 
 		; empty the packet quo for the socket
