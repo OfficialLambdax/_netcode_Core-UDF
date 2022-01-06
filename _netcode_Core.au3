@@ -311,7 +311,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.17"
+Global Const $__net_sNetcodeVersion = "0.1.5.18"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -1553,7 +1553,6 @@ Func _netcode_UseNonCallbackEvent(Const $hSocket, $sMyEvent, $sSendEvent, $sData
 	; check for TCPSend error
 	; ~ todo
 
-
 	Local $arEventData = ""
 	Local $hTimer = TimerInit()
 
@@ -2645,34 +2644,38 @@ Func __netcode_ExecutePackets(Const $hSocket)
 	Local $nCurrentBufferIndex = @error
 	Local $nCurrentIndex = _storageS_Read($hSocket, '_netcode_ExecutionIndex')
 	Local $sID = ""
+	Local $nExecutingIndex = 0
 
 	; if the socket is already gone at this point then as such also is the execution buffer
 	If Not IsArray($arPackages) Then Return __Trace_FuncOut("__netcode_ExecutePackets")
 
-	For $i = $nCurrentIndex To 999
-		If $arPackages[$i][0] = '' Then ExitLoop
+	While True
 
-		; remove data from the buffer
-		__netcode_SocketRemExecutionBufferValue($hSocket, $i)
+		if $arPackages[$nCurrentIndex][0] = '' Then ExitLoop
 
+		; remove data from buffer
+		__netcode_SocketRemExecutionBufferValue($hSocket, $nCurrentIndex)
+
+		; temporary store index that is going to be executed
+		$nExecutingIndex = $nCurrentIndex
+
+		; highten index to save it before we execute the event
 		$nCurrentIndex += 1
-		If $nCurrentIndex = 1000 Then $nCurrentIndex = 0
+		if $nCurrentIndex = 1000 Then $nCurrentIndex = 0
 
-		; and update execution index
+		; update the execution index
 		_storageS_Overwrite($hSocket, '_netcode_ExecutionIndex', $nCurrentIndex)
 
 		; execute event
-		__netcode_ExecuteEvent($hSocket, $arPackages[$i][0], $arPackages[$i][1])
+		__netcode_ExecuteEvent($hSocket, $arPackages[$nExecutingIndex][0], $arPackages[$nExecutingIndex][1])
 
 		; if the event disconnected the socket or released it then return since there is no longer a purpose to execute more or todo anything else
 		if __netcode_CheckSocket($hSocket) == 0 Then Return __Trace_FuncOut("__netcode_ExecutePackets")
 
-		$sID &= $i & ','
+		; add executed index
+		$sID &= $nExecutingIndex & ','
 
-;~ 		$arPackages[$i][0] = ''
-;~ 		$arPackages[$i][1] = ''
-
-	Next
+	WEnd
 
 	if $__net_bPacketConfirmation Then
 		if $sID <> "" Then
@@ -3115,7 +3118,6 @@ Func __netcode_ManageNetcode($hSocket, $sPackages)
 		; [3] = event
 		; [4] = data
 
-
 ;~ 		_ArrayDisplay($arPacketContent, @ScriptName)
 
 		__netcode_SocketSetRecvPacketPerSecond($hSocket, 1)
@@ -3236,6 +3238,7 @@ Func __netcode_SendPacketQuo()
 	; select clients of the send quo that are ready to send
 	Local $arTempSendQuo = __netcode_SocketSelect($__net_arPacketSendQue, False)
 
+
 	; if none are capable
 	if UBound($arTempSendQuo) = 0 Then Return __Trace_FuncOut("__netcode_SendPacketQuo")
 
@@ -3252,7 +3255,8 @@ Func __netcode_SendPacketQuo()
 		; send non-blocking
 ;~ 		$sData = StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo'), 4) ; Reverted - Fix from 1.5.10
 		$sData = StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo'))
-		__netcode_TCPSend($arTempSendQuo[$i], $sData, False)
+;~ 		__netcode_TCPSend($arTempSendQuo[$i], $sData, False)
+		__netcode_TCPSend($arTempSendQuo[$i], $sData, True)
 		$nError = @error
 
 		; empty the packet quo for the socket
@@ -3536,10 +3540,6 @@ Func __netcode_AddToExecutionBuffer(Const $hSocket, $sID, $sEvent, $sData)
 		$nCurrentBufferIndex += 1
 		If $nCurrentBufferIndex = 1000 Then $nCurrentBufferIndex = 0
 	EndIf
-
-	; write event and data to the buffer
-;~ 	$arBuffer[$nPacketID][0] = $sEvent
-;~ 	$arBuffer[$nPacketID][1] = $sData
 
 	; storage the changed buffer
 ;~ 	__netcode_SocketSetExecutionBufferValues($hSocket, $nCurrentBufferIndex, $arBuffer)

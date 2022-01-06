@@ -1,3 +1,14 @@
+06.01.2022 (DD/MM/YYYY) 0.1.5.18
+
+	Fixed
+		- A programming mistake within __netcode_ExecutePackets() which lead to _netcode not executing a
+		received packet until a new arrived. The bug appeared when the packets with ID 999 and ID 0 where
+		combined and send with the same TCP 'send' call and also received at the same time.
+		The function simply didnt check if a packet with 0 existed after 999 was executed and didnt get
+		called again until a new packet was received. In the end this could have lead to timeouts within
+		functions like _netcode_UseNonCallbackEvent().
+
+
 03.01.2022 (DD/MM/YYYY) 0.1.5.17
 
 	Fixed
