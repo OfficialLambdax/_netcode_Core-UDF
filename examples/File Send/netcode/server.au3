@@ -83,20 +83,20 @@ Func _Event_RegisterDownload(Const $hSocket, $sFileName, $nFileSize)
 
 	if StringLen($sFileName) > 100 Then
 		; file name to long
-		_netcode_TCPSend($hSocket, 'RegisterResponse', "False")
+		_netcode_TCPSend($hSocket, 'RegisterResponse', "1")
 		Return
 	EndIf
 
-	if StringInStr($sFileName, '..') Then
+	if StringInStr($sFileName, '\..\') Then
 		; file name contains illegal characters
-		_netcode_TCPSend($hSocket, 'RegisterResponse', "False")
+		_netcode_TCPSend($hSocket, 'RegisterResponse', "2")
 		Return
 	EndIf
 
 	Local $hFileHandle = _netcode_SocketGetVar($hSocket, "FileDownloadHandle")
 	if $hFileHandle <> Null Then
 		; download already registered
-		_netcode_TCPSend($hSocket, 'RegisterResponse', "False")
+		_netcode_TCPSend($hSocket, 'RegisterResponse', "3")
 		Return
 	EndIf
 
@@ -104,21 +104,21 @@ Func _Event_RegisterDownload(Const $hSocket, $sFileName, $nFileSize)
 
 	if FileExists($sFilePath) And $__bDenyOverwritingOfExistingFiles Then
 		; file already exists
-		_netcode_TCPSend($hSocket, 'RegisterResponse', "False")
+		_netcode_TCPSend($hSocket, 'RegisterResponse', "4")
 		Return
 	EndIf
 
 	; if file was actually a folder
 	if StringRight($sFilePath, 1) = '\' Then
 		DirCreate($sFilePath)
-		_netcode_TCPSend($hSocket, 'RegisterResponse', "True")
+		_netcode_TCPSend($hSocket, 'RegisterResponse', "0")
 		Return
 	EndIf
 
 	$hFileHandle = FileOpen($sFilePath, 18)
 	if $hFileHandle = -1 Then
 		; could not open file in write mode
-		_netcode_TCPSend($hSocket, 'RegisterResponse', "False")
+		_netcode_TCPSend($hSocket, 'RegisterResponse', "5")
 		Return
 	EndIf
 
@@ -130,7 +130,7 @@ Func _Event_RegisterDownload(Const $hSocket, $sFileName, $nFileSize)
 	_netcode_SocketSetVar($hSocket, "FileDownloadProgress", 0) ; percentage
 
 
-	_netcode_TCPSend($hSocket, 'RegisterResponse', "True")
+	_netcode_TCPSend($hSocket, 'RegisterResponse', "0")
 EndFunc
 
 ; writes the file content to the pre opened file handle
