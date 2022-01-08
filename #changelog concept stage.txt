@@ -1,3 +1,20 @@
+07.01.2022 (DD/MM/YYYY) 0.1.5.19
+
+	Fixed
+		- Having a high $__net_nMaxRecvBufferSize could result in a Hang.
+		The bug appeared in the file send example when the maxmimum buffer was set to 1048576 * 25.
+		This bug persisted long before _netcode became public. The bug had a low priority because having such a high
+		recv buffer is not necessary. The exacty reason why it is fixed is unknown to me. Some changes in the past must have
+		fixed it.
+
+	Additions
+		- Added _netcode_CheckSocket(). This function will return the type of the socket.
+		
+		- Added _netcode_TCPDisconnectWhenReady(). This function is temporary and is ment to provide a way to only
+		disconnect a socket once it could be made sure that the receiver actually received, managed and executed the last send
+		packets.
+
+
 06.01.2022 (DD/MM/YYYY) 0.1.5.18
 
 	Fixed

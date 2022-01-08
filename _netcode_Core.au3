@@ -4,23 +4,31 @@
 ;~ Opt("MustDeclareVars", 1) ; nice fature to find missing variable declarations
 #cs
 
-	Github
+	Official Repository
 		https://github.com/OfficialLambdax/_netcode_Core-UDF
 
 	Terminology
-		Parent
-			parents are all listening sockets. So if you call TCPListen the returned socket is a parent. Every incoming connection accepted with TCPAccept will be a Client of that parent.
-			To make things more compatible and use less code and complexity every socket returned from TCPConnect also is a client socket. Its parent socket then is 000.
-			If required you can check what the socket is by using __netcode_CheckSocket() 1 = parent, 2 = client, 0 = unknown to _netcode.
-			And if you want to know if a Client Socket is from TCPListen or TCPConnect then use __netcode_ClientGetParent(). A return
-			of 000 will indicate its from TCPConnect() a different return but 0 will indicate its from TCPAccept. If 0 is returned then
-			the given socket isnt a client socket or just not known to _netcode.
+
+		Parent Sockets and Client Sockets
+			A parent is a socket that originates from _netcode_TCPListen(). Clients are seperated into Accept Clients and Connect Clients.
+			Accept clients originate from TCPAccept (which is called within _netcode_Loop()) and Connect clients which come from _netcode_TCPConnect.
+			_netcode treats accept and connect clients similiar but slightly different in some cases.
+			Each Client requires to have a parent. A Accept client is bound to the TCPListen parent that it is accepted from.
+			A connect client is bound to a fictive socket named "000".
+
+			You can get the type of the socket with _netcode_CheckSocket().
+
+			The fictive socket "000" is created whenever a new connect client socket is created and deleted once there are none left.
+
+			With _netcode_Loop() you can either loop a parent, in which case every accept client of it is looped. Or you can loop
+			an individual Accept or Connect client. Additionally you can also Loop the "000" socket, in which case all Connect clients
+			are looped.
 
 		Known and Unknown Sockets
 			_netcode only handles sockets that are known to it. All sockets created by _netcode or that are bind to it with _netcode_BindSocket()
-			are managed and info about can be retrieved. If a socket is created outside of _netcode then _netcode wont be able to give any
+			are managed and info about them can be retrieved. If a socket is created outside of _netcode then _netcode wont be able to give any
 			information about it. That is also true if the socket is released from _netcode with _netcode_ReleaseSocket().
-			You can use __netcode_CheckSocket() to check if a socket is known or not and of what type it is (1 = parent, 2 = client, 0 = unknown to _netcode).
+			You can use _netcode_CheckSocket() to check if a socket is known or not and of what type it is (1 = parent, 2 = client, 0 = unknown to _netcode).
 
 		Socket Holding
 			Sockets can be set OnHold with _netcode_SetSocketOnHold(). _netcode will pause executing packets from Sockets that are OnHold.
@@ -29,13 +37,20 @@
 
 		Active and Inactive Sockets
 			Inactive sockets are Sockets which do not transfer data at the moment. Active sockets are those where data is received from or data is send to currently.
-			So once data is in the buffer the Inactive becomes a active and once not it becomes inactive again. Inactive sockets are very fast to handle.
+			So once data is in the recv or send buffer the Inactive becomes a active and once not it becomes inactive again. Inactive sockets are very fast to handle.
+
+			Generally _netcode_Loop() checks with the __netcode_SocketSelect() function if any of the Sockets, to be looped, have anything in the recv Buffer.
+			Said function will simply ask windows if data got received. Only those sockets where that check is true are then be run with _netcode_RecvManageExecute().
+			This function will then, like the name says, empty the windows own buffer, unpack the received data and lastly execute it.
+
+			The 'select' dll call is the key which rised the performance within _netcode. Because of it only sockets that have anything received are managed.
+			Every else is ignored, which dramatically improved loop time. Also because of it _netcode is capable to support thousands of inactive sockets.
+			Nearly only active sockets actually take performance.
 
 		Staging
 			_netcode uses so called Stages. Each and every incomming connection needs to stage through several stages before it is possible to interact with them.
-			Within these stages a session key is handshaked, options are synced, the optional user login is done and more. A client for example always inherits
+			Within these stages a session key is handshaked, options are synced, the optional user login is done and more. A connect client for example always inherits
 			the options from the server and obviously that needs to be done at some point.
-
 
 		Events
 			_netcode Supports 2 different types of Events. Callback Events and Non Callback Events. The difference of them is described below.
@@ -48,8 +63,8 @@
 			If you set one or more events with _netcode_SetEvent() to a Accept or Connect Client, then only this Client will have these Events.
 
 			Socket specific Events are priotised over Default events.
-			_netcode simply checks for a socket specifc event first and then for a default event. Whatever comes first is used. If the event is not set
-			when the packets are processed and executed then the data is simply rejected.
+			_netcode simply checks for a socket specifc event first and then for a default event. If the event is not set
+			when the packets are processed and executed then the data is simply vented.
 
 			Events are case-sensitive.
 			So if you set a event like _netcode_SetEvent(hSocket, "MyEvent", "_Event_MyEvent") then you can only call it by using
@@ -155,15 +170,24 @@
 
 
 	Known Bugs
-		Mayor - Having a high $__net_nMaxRecvBufferSize can result in a Hang. Why?
-			Bug appears in the file send example - have the maxmimum buffer set to 1048576 * 25 to experience the bug
-			(Bug happens not so often, but when, its very bad)
+		Mayor
+			- Unlikely to happen. _netcodes own packet safety is currently not working. The light weight feature is made to fix packet corruption or
+			packet loss. Currently in such an event _netcode will simply disconnect the client. The disconnect is on purpose, because otherwise a
+			memory leak will happen. The bug is further described in the changelog at v0.1.5.10
+
+		Minor
+			- Sending special characters that cannot be converted with StringToBinary() get corrupted. To prevent this from happening, either
+			enable encryption or convert the string yourself with StringToBinary(data, 4) when you send the data and revert the conversion in your event.
+			The bug is further described in the changelog at v0.1.5.10
 
 
 	Remarks
+
 		Stripping
 			use #AutoIt3Wrapper_Au3stripper_OnError=ForceUse in your Script and add all Event Functions to a Anti Stripping function.
 			See __netcode_EventStrippingFix() for an example.
+
+			~ todo Create a seperate document for this
 
 
 #ce
@@ -311,14 +335,14 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.18"
+Global Const $__net_sNetcodeVersion = "0.1.5.19"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
 __netcode_EventStrippingFix()
 
 ; ===================================================================================================================================================
-; User Defined Functions start
+; User Defined Functions below
 
 
 ; #FUNCTION# ====================================================================================================================
@@ -537,6 +561,73 @@ EndFunc   ;==>_netcode_TCPDisconnect
 
 
 ; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_TCPDisconnectWhenReady
+; Description ...: Disconnects the given socket once the safety buffer is empty.
+; Syntax ........: _netcode_TCPDisconnectWhenReady(Const $hSocket)
+; Parameters ....: $hSocket             - [const] The socket
+;				   $nTimeout			- Time in ms. If this time is exceeded then the socket is disconnected.
+; Return values .: True					= Success
+;				   False				= Socket is unknown
+; Modified ......:
+; Remarks .......: This is a temporary function and will be replaced with a non blocking technic that is automatically going to be used
+;				   with _netcode_TCPDisconnect(). For the time being this function here is just usefull to make sure that the last send
+;				   packets are actually executed by the receiver. So that no data loss is happening duo to a too early disconnect.
+; Example .......: No
+; ===============================================================================================================================
+Func _netcode_TCPDisconnectWhenReady(Const $hSocket, $nTimeout = 10000)
+
+	Switch __netcode_CheckSocket($hSocket)
+
+		Case 0
+			Return False
+
+		Case 1 ; parent
+
+			; get the clients of this parent
+			Local $arClients = __netcode_ParentGetClients($hSocket)
+
+			; for each client
+			For $i = 0 To UBound($arClients) - 1
+
+				; disconnect when ready
+				_netcode_TCPDisconnectWhenReady($arClients[$i], $nTimeout)
+
+			Next
+
+			; disconnect parent
+			_netcode_TCPDisconnect($hSocket)
+
+			Return True
+
+		Case 2 ; client
+			Local $hTimer = TimerInit()
+
+			While True
+
+				; if time is above $nTimeout then exitloop
+				if TimerDiff($hTimer) > $nTimeout Then ExitLoop
+
+				; check safetbuffersize
+				if Number(_storageS_Read($hSocket, '_netcode_SafetyBufferSize')) = 0 Then ExitLoop
+
+				; try to catch 'netcode_internal' packets
+				_netcode_RecvManageExecute($hSocket)
+
+				; check if socket is still present
+				if Not __netcode_CheckSocket($hSocket) Then Return True
+			WEnd
+
+			; finnaly disconnect the client
+			_netcode_TCPDisconnect($hSocket)
+
+			Return True
+
+
+	EndSwitch
+EndFunc
+
+
+; #FUNCTION# ====================================================================================================================
 ; Name ..........: _netcode_TCPListen
 ; Description ...: Creates a parent socket with a set amount of maximum clients
 ; Syntax ........: _netcode_TCPListen($sPort[, $sIP = '0.0.0.0'[, $nMaxPendingConnections = Default[, $nMaxConnections = 200[,
@@ -593,11 +684,13 @@ EndFunc   ;==>_netcode_TCPListen
 Func _netcode_TCPConnect($sIP, $sPort, $bDontAuthAsNetcode = False, $sUsername = "", $sPassword = "", $arKeyPairs = False)
 	__Trace_FuncIn("_netcode_TCPConnect", $sIP, $sPort, $bDontAuthAsNetcode, $sUsername, "$sPassword", "$arKeyPairs")
 
+	Local $nError = 0
+
 	; connect to ip and port
 ;~ 	Local $hSocket = TCPConnect($sIP, $sPort) ; for reference
 	Local $hSocket = __netcode_TCPConnect($sIP, $sPort)
 	If $hSocket = -1 Then
-		Local $nError = @error
+		$nError = @error
 		__Trace_Error($nError, 0)
 		Return SetError($nError, 0, __Trace_FuncOut("_netcode_TCPConnect", False))
 	EndIf
@@ -607,7 +700,7 @@ Func _netcode_TCPConnect($sIP, $sPort, $bDontAuthAsNetcode = False, $sUsername =
 	__netcode_AddSocket($hSocket, '000', 0, $sIP, $sPort, $sUsername, $sPassword)
 	If Not $bDontAuthAsNetcode Then
 		If Not _netcode_AuthToNetcodeServer($hSocket, $sUsername, $sPassword, $arKeyPairs) Then
-			Local $nError = @error
+			$nError = @error
 			Local $nExtended = @extended
 			__netcode_TCPCloseSocket($hSocket)
 			__netcode_RemoveSocket($hSocket)
@@ -2194,6 +2287,42 @@ EndFunc   ;==>_netcode_DisconnectClientsByIP
 
 
 ; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_CheckSocket
+; Description ...: Returns the socket type
+; Syntax ........: _netcode_CheckSocket(Const $hSocket)
+; Parameters ....: $hSocket             - [const] The socket
+; Return values .: 0					= Unknown socket (the socket is unknown to _netcode)
+; 				 : 1					= This socket is a parent
+; 				 : 2					= This socket is a client
+; Extended ......: 1					= The client socket is a Accept client
+; 				 : 2					= The client socket is a Connect client
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
+Func _netcode_CheckSocket(Const $hSocket)
+
+	Switch __netcode_CheckSocket($hSocket)
+
+		Case 0
+			Return 0
+
+		Case 1
+			Return 1
+
+		Case 2
+			If __netcode_ClientGetParent($hSocket) = "000" Then
+				Return SetError(0, 1, 2)
+			Else
+				Return SetError(0, 2, 2)
+			EndIf
+
+	EndSwitch
+
+EndFunc
+
+
+; #FUNCTION# ====================================================================================================================
 ; Name ..........: _netcode_BindSocket
 ; Description ...: Binds the given Socket to _netcode. Either as parent or as tcp- accept / connect client of the given parent.
 ; Syntax ........: _netcode_BindSocket(Const $hSocket[, $hParentSocket = False[, $nIfListenerMaxConnections = 200[, $sIP = False[,
@@ -2631,10 +2760,9 @@ Func __netcode_CheckSocketIfAllowed(Const $hSocket, $hParentSocket = False)
 EndFunc   ;==>__netcode_CheckSocketIfAllowed
 
 ; executes all packets in the buffer, will fail if socket is OnHold
-; marked for recoding
-; This function also should only remove packets from the execution buffer that it is going to execute. So that packets that might got added, through
-; the call of _netcode_Loop() or _netcode_RecvManageExecute() within a Event, do not get lost.
-; i might also want to deny packet execution, internal packets not included, if the calls where done in a Event.
+; reminder. the data TO BE executed needs to be deleted from the execution buffer before the data is executed.
+; otherwise, in the case that _netcode_Loop() is called within the event, the data is simply going to be reexecuted.
+; That would be a bug that could cause recursion issues.
 Func __netcode_ExecutePackets(Const $hSocket)
 	__Trace_FuncIn("__netcode_ExecutePackets", $hSocket)
 
