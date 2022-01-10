@@ -1,3 +1,10 @@
+10.01.2022 (DD/MM/YYYY) 0.1.5.20
+
+	Fixed
+		- _netcode_SocketGetRecvBytesPerSecond(), _netcode_SocketGetSendBytesPerSecond(), _netcode_SocketGetRecvPacketPerSecond(),
+		_netcode_SocketGetSendPacketPerSecond() will no longer return old information.
+
+
 07.01.2022 (DD/MM/YYYY) 0.1.5.19
 
 	Fixed

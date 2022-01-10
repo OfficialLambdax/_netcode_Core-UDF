@@ -33,7 +33,8 @@
 		Socket Holding
 			Sockets can be set OnHold with _netcode_SetSocketOnHold(). _netcode will pause executing packets from Sockets that are OnHold.
 			To be clear: Just not be executed, _netcode will still receive, unpack and store incoming packets. However only until the Buffer
-			limit is reached. Every packet exceeding the buffer will be voided.
+			limit is reached. Every packet exceeding the buffer will be voided. But the sender wont overflow the buffer since it knows the status
+			of the receivers buffer.
 
 		Active and Inactive Sockets
 			Inactive sockets are Sockets which do not transfer data at the moment. Active sockets are those where data is received from or data is send to currently.
@@ -64,7 +65,7 @@
 
 			Socket specific Events are priotised over Default events.
 			_netcode simply checks for a socket specifc event first and then for a default event. If the event is not set
-			when the packets are processed and executed then the data is simply vented.
+			when the packets are processed and executed then the data is simply vented and a Tracer error thrown.
 
 			Events are case-sensitive.
 			So if you set a event like _netcode_SetEvent(hSocket, "MyEvent", "_Event_MyEvent") then you can only call it by using
@@ -82,8 +83,11 @@
 			This also applies to large data sends that would trigger a Flood Prevention within _netcode_TCPSend().
 			So if you are going to write a complex script then do large data sends outside of the event, to prevent recursion issues.
 
+			; ~ todo write appropriate examples
+
 		Callback Event
 			Set with _netcode_SetEvent($hSocket, "MyCallbackEvent", "_Event_MyCallbackEvent")
+
 			Callback events are tied to Functions of your own. So if you have set the "MyCallbackEvent" on lets say the server like above and then send data to it
 			from the client with _netcode_TCPSend($hSocket, "MyCallbackEvent", "example data") then your Function "_Event_MyCallbackEvent" will be called with 2 parameters,
 			once the server received and processed the packet.
@@ -112,6 +116,7 @@
 
 		Non Callback Event
 			Set with _netcode_SetEvent($hSocket, "MyNonCallbackEvent")
+
 			Non Callback events are not tied to Functions of your own. The data send to it can be read with _netcode_GetEventData().
 			The general idea behind Non Callback events is to make it possible to get data like how you would with a simple Function call.
 
@@ -130,7 +135,7 @@
 			[2] = response data
 			[.]
 			[.]
-			[16] = up to 16 params
+			[18] = up to 16 params
 
 			So Non callback Events are also compatible with _netcode_sParams() and .._exParams().
 
@@ -171,9 +176,10 @@
 
 	Known Bugs
 		Mayor
-			- Unlikely to happen. _netcodes own packet safety is currently not working. The light weight feature is made to fix packet corruption or
-			packet loss. Currently in such an event _netcode will simply disconnect the client. The disconnect is on purpose, because otherwise a
-			memory leak will happen. The bug is further described in the changelog at v0.1.5.10
+			- Unlikely to happen. _netcodes own packet safety is currently not working. The light weight feature is made to fix packet corruption,
+			packet loss or misorders. Currently in such an event _netcode will simply disconnect the client. The disconnect is on purpose, because otherwise a
+			memory leak will happen. The bug is further described in the changelog at v0.1.5.10. The bug is unlikely to happen because packet corruptions or loss
+			is very rare.
 
 		Minor
 			- Sending special characters that cannot be converted with StringToBinary() get corrupted. To prevent this from happening, either
@@ -255,7 +261,7 @@ Global $__net_nDefaultRecvLen = 1048576 * 0.25 ; has to be smaller then $__net_n
 Global $__net_nTCPRecvBufferEmptyTimeout = 20 ; ms
 
 ; Set default Seed. Ignore for now, it is not fully implemented yet
-Global $__net_nNetcodeStringDefaultSeed = Number("50853881441621333029") ; %NotSet% - numbers only - note change to Integer
+Global $__net_nNetcodeStringDefaultSeed = Number("50853881441621333029") ; %NotSet% - numbers only - note change to Double
 
 ; set to True if you want the _netcode_sParam() to binarize all data. Will slow down the function by alot.
 Global $__net_bParamSplitBinary = False
@@ -267,14 +273,14 @@ Global $__net_nMaxPasswordLen = 30 ; max password len for the User Stage. If the
 ; disable to use the unstable socket select packet confirmation instead of the receivers confirmation packet.
 ; will not improve performance, but reduces receivers load and its network usage. If False this Option will render certain packet safety options useless.
 ; packet loss is a certain effect if _netcode_SetSocketOnHold() is used. Packet resend duo to packet loss or corruption will not work either until the packet
-; safety is overhauled. Both the server and the clients need this option to be the same, it is not synced.
+; safety is overhauled. Both the server and the clients need this option to be the same, it is not synced because its a global setting.
 Global $__net_bPacketConfirmation = True
 
 ; ===================================================================================================================================================
 ; Tracer
 
 ; enables the Tracer. Will slow down the UDF by about 5 %, but needs to be True if you want to use any of the options below.
-; never toggle THIS option in your script or it might hard crash. All other Tracer sub options can be toggled anytime.
+; never toggle THIS option on the fly in your script or it might hard crash. All other Tracer sub options can be toggled anytime.
 Global $__net_bTraceEnable = False
 
 ; will log every call of a UDF function to the console in a ladder format. Will massively decrease the UDF speed because it floods the console.
@@ -283,7 +289,7 @@ Global $__net_bTraceLogEnable = False
 ; will log errors and extendeds to the console and their describtions. very usefull while developing
 Global $__net_bTraceLogErrorEnable = True
 
-; will save all errors, its extendeds and further information to an array. Array can be looked at with _ArrayDisplay()
+; will save all errors, its extendeds and further information to an array. Array can be looked at with _ArrayDisplay($__net_arTraceErrors)
 Global $__net_bTraceLogErrorSaveToArray = False
 
 ; each and every function becomes a Timer set to it. Once the function is done the Tracer outputs the time it took to finish the function.
@@ -297,24 +303,24 @@ Global $__net_arTraceErrors[0][9] ; date | time | funcname | error code | extend
 
 ; ===================================================================================================================================================
 ; Internals dont change
-Global $__net_arSockets[0] ; parent sockets
+Global $__net_arSockets[0] ; all known parent sockets
 Global $__net_hWs2_32 = -1 ; Ws2_32.dll handle
 Global $__net_sAuthNetcodeString = 'iT0325873JoWv5FVOY3' ; this string indicates to the server that a _netcode client is connecting
 Global $__net_sAuthNetcodeConfirmationString = '09iCKqRh80D27' ; the server then responds with this, confirming to the client that it is a _netcode server.
 Global $__net_sPacketBegin = '8NoguKX5UB' ; always 10 bytes long
 Global $__net_sPacketInternalSplit = 'c3o8197sT6' ; 10 bytes
 Global $__net_sPacketEnd = 'YWy44X03PF' ; 10 bytes
-Global $__net_arDefaultEventsForEachNewClientSocket[0][2]
+Global $__net_arDefaultEventsForEachNewClientSocket[0][2] ; contains all default events. Eventname | Callback
 Global $__net_sParamSplitSeperator = 'eUwc99H4Vc' ; 10 bytes
 Global $__net_sParamIndicatorString = 'NDs2GA59Wj' ; 10 bytes
 Global $__net_sSerializationIndicator = '4i8lwnpc6w' ; 10 bytes - keep them always exactly 10 bytes long
 Global $__net_sSerializeArrayIndicator = '6v934Y71fS' ; 10 bytes
 Global $__net_sSerializeArrayYSeperator = '152b7l27E6' ; 10 bytes
 Global $__net_sSerializeArrayXSeperator = '3615RW0117' ; 10 bytes
-Global $__net_arPacketSendQue[0]
-Global $__net_arPacketSendQueWait[0]
-Global $__net_arPacketSendQueIDWait[0]
-Global $__net_arGlobalIPList[0]
+Global $__net_arPacketSendQue[0] ; contains all sockets that have something in the send buffer
+Global $__net_arPacketSendQueWait[0] ; old variable used for a earlier send quo method
+Global $__net_arPacketSendQueIDWait[0] ; contains all sockets where the send buffer was just send. Used to check when to clear the safetybuffer if $__net_bPacketConfirmation = False
+Global $__net_arGlobalIPList[0] ; unused - will contain a ip list that is either white or blacklist. Incoming connection
 Global $__net_bGlobalIPListIsWhitelist = False
 Global $__net_hInt_bcryptdll = -1 ; bcrypt.dll handle
 Global $__net_hInt_ntdll = -1 ; nt.dll handle
@@ -335,7 +341,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.19"
+Global Const $__net_sNetcodeVersion = "0.1.5.20"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -4698,19 +4704,17 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 ;~ 			$arBuffer[$i] = 0
 ;~ 		Next
 		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecond', 0)
-;~ 		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondArray', $arBuffer)
-		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondSecond', @SEC)
+		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondTimer', TimerInit())
 		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondCount', 0)
 		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecond', 0)
-;~ 		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondArray', $arBuffer)
-		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondSecond', @SEC)
+		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondTimer', TimerInit())
 		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondCount', 0)
 		_storageS_Overwrite($hSocket, '_netcode_SendPacketPerSecond', 0)
 		_storageS_Overwrite($hSocket, '_netcode_SendPacketPerSecondBuffer', 0)
-		_storageS_Overwrite($hSocket, '_netcode_SendPacketPerSecondSecond', @SEC)
+		_storageS_Overwrite($hSocket, '_netcode_SendPacketPerSecondTimer', TimerInit())
 		_storageS_Overwrite($hSocket, '_netcode_RecvPacketPerSecond', 0)
 		_storageS_Overwrite($hSocket, '_netcode_RecvPacketPerSecondBuffer', 0)
-		_storageS_Overwrite($hSocket, '_netcode_RecvPacketPerSecondSecond', @SEC)
+		_storageS_Overwrite($hSocket, '_netcode_RecvPacketPerSecondTimer', TimerInit())
 		__netcode_SocketSetPacketEncryption($hSocket, __netcode_SocketGetPacketEncryption($hListenerSocket))
 		__netcode_SocketSetIPAndPort($hSocket, $sIP, $nPort) ; set ip and port given in _netcode_TCPConnect()
 		__netcode_SocketSetUsernameAndPassword($hSocket, $sUsername, $sPassword)
@@ -5125,11 +5129,10 @@ Func __netcode_SocketSetSendBytesPerSecond(Const $hSocket, $nBytes)
 
 	; get buffer and the second it belongs too
 	Local $nBufferSize = _storageS_Read($hSocket, '_netcode_SendBytesPerSecondCount')
-;~ 	if Not IsArray($arBuffer) Then Return __Trace_FuncOut("__netcode_SocketSetSendBytesPerSecond") ; socket gone
-	Local $nCalculatedSecond = _storageS_Read($hSocket, '_netcode_SendBytesPerSecondSecond')
+	Local $hTimer = _storageS_Read($hSocket, '_netcode_SendBytesPerSecondTimer')
 
 	; if its the next second then
-	if $nCalculatedSecond <> @SEC Then
+	if TimerDiff($hTimer) > 1000 Then
 
 		; calculate how much bytes per second where send
 		Local $nBytesPerSecond = $nBufferSize
@@ -5138,7 +5141,7 @@ Func __netcode_SocketSetSendBytesPerSecond(Const $hSocket, $nBytes)
 
 		; and write said information to the storage
 		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecond', $nBytesPerSecond)
-		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondSecond', @SEC)
+		_storageS_Overwrite($hSocket, '_netcode_SendBytesPerSecondTimer', TimerInit())
 	EndIf
 
 	; add the current send bytes to the array index of the ms it was send
@@ -5157,9 +5160,7 @@ Func __netcode_SocketGetSendBytesPerSecond(Const $hSocket, $nMode = 0)
 		Return 0
 	Else
 		; if the info is old as- or older then 2 seconds then return 0
-;~ 		Local $nCalculatedSecond = _storageS_Read($hSocket, '_netcode_SendBytesPerSecondSecond')
-
-		if @SEC - _storageS_Read($hSocket, '_netcode_SendBytesPerSecondSecond') >= 2 Then Return 0
+		if TimerDiff(_storageS_Read($hSocket, '_netcode_SendBytesPerSecondTimer')) > 2000 Then Return 0
 	EndIf
 
 	Switch $nMode
@@ -5186,11 +5187,10 @@ Func __netcode_SocketSetRecvBytesPerSecond(Const $hSocket, $nBytes)
 
 	; get buffer and the second it belongs too
 	Local $nBufferSize = _storageS_Read($hSocket, '_netcode_RecvBytesPerSecondCount')
-;~ 	if Not IsArray($arBuffer) Then Return __Trace_FuncOut("__netcode_SocketSetRecvBytesPerSecond") ; socket gone
-	Local $nCalculatedSecond = _storageS_Read($hSocket, '_netcode_RecvBytesPerSecondSecond')
+	Local $hTimer = _storageS_Read($hSocket, '_netcode_RecvBytesPerSecondTimer')
 
 	; if its the next second then
-	if $nCalculatedSecond <> @SEC Then
+	if TimerDiff($hTimer) > 1000 Then
 
 		; calculate how much bytes per second where received and also clean the buffer
 		Local $nBytesPerSecond = $nBufferSize
@@ -5199,7 +5199,7 @@ Func __netcode_SocketSetRecvBytesPerSecond(Const $hSocket, $nBytes)
 
 		; and write said information to the storage
 		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecond', $nBytesPerSecond)
-		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondSecond', @SEC)
+		_storageS_Overwrite($hSocket, '_netcode_RecvBytesPerSecondTimer', TimerInit())
 	EndIf
 
 	; add the current received bytes to the array index of the ms it was received
@@ -5217,7 +5217,7 @@ Func __netcode_SocketGetRecvBytesPerSecond(Const $hSocket, $nMode = 0)
 		Return 0
 	Else
 		; if the info is old as- or older then 2 seconds then return 0
-		if @SEC - _storageS_Read($hSocket, '_netcode_RecvBytesPerSecondSecond') >= 2 Then Return 0
+		if TimerDiff(_storageS_Read($hSocket, '_netcode_RecvBytesPerSecondTimer')) > 2000 Then Return 0
 	EndIf
 
 	Switch $nMode
@@ -5239,11 +5239,11 @@ EndFunc
 Func __netcode_SocketSetSendPacketPerSecond(Const $hSocket, $nCount)
 	__Trace_FuncIn("__netcode_SocketSetSendPacketPerSecond", $hSocket, $nCount)
 	Local $nBufferSize = _storageS_Read($hSocket, '_netcode_SendPacketPerSecondBuffer')
-	Local $nCalculatedSecond = _storageS_Read($hSocket, '_netcode_SendPacketPerSecondSecond')
+	Local $hTimer = _storageS_Read($hSocket, '_netcode_SendPacketPerSecondTimer')
 
-	if $nCalculatedSecond <> @SEC Then
+	if TimerDiff($hTimer) > 1000 Then
 		_storageS_Overwrite($hSocket, '_netcode_SendPacketPerSecond', $nBufferSize)
-		_storageS_Overwrite($hSocket, '_netcode_SendPacketPerSecondSecond', @SEC)
+		_storageS_Overwrite($hSocket, '_netcode_SendPacketPerSecondTimer', TimerInit())
 		$nBufferSize = 0
 	EndIf
 
@@ -5253,8 +5253,7 @@ Func __netcode_SocketSetSendPacketPerSecond(Const $hSocket, $nCount)
 EndFunc
 
 Func __netcode_SocketGetSendPacketPerSecond(Const $hSocket)
-	; this is dump and will fail if the current sec is < the one the bps got saved for.
-	if @SEC - _storageS_Read($hSocket, '_netcode_SendPacketPerSecondSecond') >=2 Then Return 0
+	if TimerDiff(_storageS_Read($hSocket, '_netcode_SendPacketPerSecondTimer')) > 2000 Then Return 0
 
 	Return _storageS_Read($hSocket, '_netcode_SendPacketPerSecond')
 EndFunc
@@ -5262,11 +5261,11 @@ EndFunc
 Func __netcode_SocketSetRecvPacketPerSecond(Const $hSocket, $nCount)
 	__Trace_FuncIn("__netcode_SocketSetRecvPacketPerSecond", $hSocket, $nCount)
 	Local $nBufferSize = _storageS_Read($hSocket, '_netcode_RecvPacketPerSecondBuffer')
-	Local $nCalculatedSecond = _storageS_Read($hSocket, '_netcode_RecvPacketPerSecondSecond')
+	Local $hTimer = _storageS_Read($hSocket, '_netcode_RecvPacketPerSecondTimer')
 
-	if $nCalculatedSecond <> @SEC Then
+	if TimerDiff($hTimer) > 1000 Then
 		_storageS_Overwrite($hSocket, '_netcode_RecvPacketPerSecond', $nBufferSize)
-		_storageS_Overwrite($hSocket, '_netcode_RecvPacketPerSecondSecond', @SEC)
+		_storageS_Overwrite($hSocket, '_netcode_RecvPacketPerSecondTimer', TimerInit())
 		$nBufferSize = 0
 	EndIf
 
@@ -5276,7 +5275,7 @@ Func __netcode_SocketSetRecvPacketPerSecond(Const $hSocket, $nCount)
 EndFunc
 
 Func __netcode_SocketGetRecvPacketPerSecond(Const $hSocket)
-	if @SEC - _storageS_Read($hSocket, '_netcode_RecvPacketPerSecondSecond') >=2 Then Return 0
+	if TimerDiff(_storageS_Read($hSocket, '_netcode_RecvPacketPerSecondTimer')) > 2000 Then Return 0
 
 	Return _storageS_Read($hSocket, '_netcode_RecvPacketPerSecond')
 EndFunc
