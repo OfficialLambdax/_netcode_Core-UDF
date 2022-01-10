@@ -30,9 +30,6 @@ If Not @Compiled Then $__net_bTraceEnable = True
 Global $__hMyConnectClient = _netcode_TCPConnect($__sConnectToIP, $__sConnectToPort)
 if Not $__hMyConnectClient Then Exit MsgBox(16, "Client Error", "Cannot Connect to Server")
 
-; set callback events
-_netcode_SetEvent($__hMyConnectClient, 'disconnected', "_Event_Disconnect")
-
 ; set non callback events
 _netcode_SetEvent($__hMyConnectClient, 'RegisterResponse')
 
@@ -97,6 +94,9 @@ While True
 				Case 5
 					$arErrors[$nArSize][1] = "Server couldnt create file"
 
+				Case 98
+					$arErrors[$nArSize][1] = "Could not open the File in Read mode"
+
 				Case 99
 					$arErrors[$nArSize][1] = "Server didnt respond to Upload Register"
 
@@ -114,6 +114,12 @@ While True
 		if __netcode_CheckSocket($__hMyConnectClient) = 0 Then Exit MsgBox(16, "Disconnected", "Disconnected from Server. Aborting Upload")
 	Next
 
+	; tell the server that we are done
+	_netcode_TCPSend($__hMyConnectClient, 'FilesAmount', "Null")
+
+	; send the last packet
+	_netcode_Loop($__hMyConnectClient)
+
 	; show failed uploads
 	if UBound($arErrors) > 0 Then
 		_ArrayDisplay($arErrors, "Failed Uploads")
@@ -127,11 +133,9 @@ WEnd
 _netcode_Shutdown()
 
 ; =========================================================================
-; Events
+; Callback Events
 
-Func _Event_Disconnect(Const $hSocket, $nDisconnectError, $bDisconnectTriggered)
-
-EndFunc
+; none
 
 
 ; =========================================================================
@@ -144,36 +148,34 @@ Func _Internal_UploadFile($sFilePath, $nIndex)
 		; cut file name according to the file upload mode
 		if $__bFolderUpload Then
 			$sFilePath = StringTrimLeft($sFilePath, StringLen($__sfFolderPath) + 1)
-
-;~ 			MsgBox(0, "", $sFilePath)
 		Else
 			$sFilePath = StringTrimLeft($sFilePath, StringInStr($sFilePath, '\', 0, -1))
 		EndIf
 
-		; register upload of folder
+		; register upload of the current folder and read response from the non callback event
 		Local $arResponse = _netcode_UseNonCallbackEvent($__hMyConnectClient, 'RegisterResponse', 'RegisterDownload', _netcode_sParams(StringToBinary($sFilePath, 4), 0))
 		if @error Then
 
-			; error while requesting folder creation
+			; server didnt answer in time or disconnected
 			Return SetError(99, 0, False)
 		EndIf
 
-		; manually convert respond to Bool, since _netcode_sParams() cant do that
+		; manually convert respond to Number, because it is of Type String
 		$arResponse[2] = __netcode_SetVarType($arResponse[2], "Number")
 
 		; check response
-		if $arResponse[2] == 0 Then
-			; folder created successfully
-		Else
-			; folder couldnt be created
-
+		if $arResponse[2] <> 0 Then
+			; return the responded reason for denying the upload
 			Return SetError($arResponse[2], 0, False)
 		EndIf
 
+		; cut filepath to the name for consolewrite
 		$sFilePath = StringTrimLeft($sFilePath, StringInStr($sFilePath, '\', 0, -2))
 
+		; log the progress to the console
 		ConsoleWrite($nIndex - 1 & '/' & UBound($__arFiles) - 1 & @TAB & $sFilePath & @CRLF)
 
+		; success
 		Return True
 
 	Else ; if file
@@ -182,10 +184,10 @@ Func _Internal_UploadFile($sFilePath, $nIndex)
 		Local $hFileHandle = FileOpen($sFilePath, 16)
 		if $hFileHandle = -1 Then
 			; couldnt open the file in read mode
-			Return False
+			Return SetError(98, 0, False)
 		EndIf
 
-		; save how large the file is
+		; get how large the file is
 		Local $nFileSize = FileGetSize($sFilePath)
 
 		; cut file name according to the file upload mode
@@ -195,32 +197,33 @@ Func _Internal_UploadFile($sFilePath, $nIndex)
 			$sFilePath = StringTrimLeft($sFilePath, StringInStr($sFilePath, '\', 0, -1))
 		EndIf
 
-		; register upload of file
+		; register upload of file and read response from the non callback event
 		Local $arResponse = _netcode_UseNonCallbackEvent($__hMyConnectClient, 'RegisterResponse', 'RegisterDownload', _netcode_sParams(StringToBinary($sFilePath, 4), $nFileSize))
 		if @error Then
 
-			; error while requesting a file upload
+			; server didnt answer in time or disconnected
 			FileClose($hFileHandle)
 			Return SetError(99, 0, False)
 		EndIf
 
-		; manually convert respond to Bool, since _netcode_sParams() cant do that
+		; manually convert respond to Number, because it is of Type String
 		$arResponse[2] = __netcode_SetVarType($arResponse[2], "Number")
 
 		; check if server denies upload
 		if $arResponse[2] <> 0 Then
-
-			; server denied upload
 			FileClose($hFileHandle)
+
+			; return the responded reason for denying the upload
 			Return SetError($arResponse[2], 0, False)
 		EndIf
 
-		; ready variables for upload
+		; create variables for upload
 		Local $sData = ""
 		Local $sReadSize = _netcode_GetDefaultPacketContentSize("Download")
 		Local $nProgress = 0
 		Local $nBytesLastRead = 0
 
+		; cut the filepath for its name for ConsoleWrite()
 		$sFilePath = StringTrimLeft($sFilePath, StringInStr($sFilePath, '\', 0, -1))
 
 		; upload loop
@@ -228,39 +231,48 @@ Func _Internal_UploadFile($sFilePath, $nIndex)
 
 			; read file content
 			$sData = FileRead($hFileHandle, $sReadSize)
-			if @error = -1 Then ; end of file reached
+
+			; end of file reached
+			if @error = -1 Then
 
 				ExitLoop
 			EndIf
+
+			; catch the amount of read bytes instead of using BinaryLen()
 			$nBytesLastRead = @extended
 
-			; quo packet with flood prevention on
+			; quo the data for sending with flood prevention on
 			_netcode_TCPSend($__hMyConnectClient, "Download", BinaryToString($sData), True)
 
-			; send packet
+			; send the data with _netcode_Loop()
 			If Not _netcode_Loop($__hMyConnectClient) Then
 
-				; if we lost connection to the server
+				; if we lost connection to the server while uploading
 				FileClose($hFileHandle)
 				Return SetError(100, 0, False)
 
 			EndIf
 
+			; add the last read bytes to the progress for ConsoleWrite()
 			$nProgress += $nBytesLastRead
 
+			; log our progress to the Console
 			ConsoleWrite($nIndex - 1 & '/' & UBound($__arFiles) - 1 & " Uploading Progress " & Round(($nProgress / $nFileSize) * 100, 0) & "%" & @TAB & @TAB & "of " & Round($nFileSize / 1048576, 2) & " MB" & @TAB & @TAB & "@ " & _netcode_SocketGetSendBytesPerSecond($__hMyConnectClient, 2) & " MB/s - " & $sFilePath & @CRLF)
 
 		WEnd
 
+		; close the handle since the upload has finished
 		FileClose($hFileHandle)
 
-		; tell server that we are done uploading
+		; let the server know that we are done uploading so that it can close the handle on its side
 		$arResponse = _netcode_UseNonCallbackEvent($__hMyConnectClient, 'RegisterResponse', 'DownloadFinished')
 		if @error Then
+
 			; server didnt answer in time
 			Return SetError(101, 0, False)
 		EndIf
 
+		; success
 		Return True
 
 	EndIf

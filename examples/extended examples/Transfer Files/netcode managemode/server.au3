@@ -5,25 +5,38 @@
 #EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
 #include "..\..\..\..\_netcode_Core.au3"
 
-
+; Setting it to 0.0.0.0 will allow anyone to connect to it. Setting it to, lets say, 127.0.0.1 means that only a client from 127.0.0.1 can connect to it
 Global $__sAccessIP = '0.0.0.0'
+
+; port to listen for incomming connections. Variable can be of type String, Int, Number or Double.
 Global $__sAccessPort = '1225'
+
+; no more clients that this can be connected at once
 Global $__nHowManyClientsAreAllowedAtOnce = 10
+
+; where to store the files and folders
 Global $__sfDownloadPath = @ScriptDir & "\Downloads"
+
+; witch each client a session key is handshake. The current method is not safe against man in the middle attacks
 Global $__bUseEncryption = False
+
+; set to true if you want to deny the upload of a file that it already present in the storage
 Global $__bDenyOverwritingOfExistingFiles = False
 
 
 ; =========================================================================
 ; Init
 
+; startup netcode
 _netcode_Startup()
 
-;~ If Not @Compiled Then $__net_bTraceEnable = True
-$__net_bTraceEnable = True
+; if the script is not compiled then activate the tracer to catch errors that might come up while developing
+If Not @Compiled Then $__net_bTraceEnable = True
 
+; create storage directory if it doesnt exist yet
 if Not FileExists($__sfDownloadPath) Then DirCreate($__sfDownloadPath)
 
+; create listener
 Global $__hMyParent = _netcode_TCPListen($__sAccessPort, $__sAccessIP,  Default, $__nHowManyClientsAreAllowedAtOnce)
 if @error Then Exit MsgBox(16, "Server Error", "Could not startup listener at port: " & $__sAccessPort)
 
@@ -48,13 +61,13 @@ _netcode_SetEvent($__hMyParent, "message", "_Event_Message")
 ConsoleWrite("Server online at port " & $__sAccessPort & @CRLF)
 
 While True
-	if Not _netcode_Loop($__hMyParent) Then Exit MsgBox(16, "Server Error", "Server Shutdown")
+	if Not _netcode_Loop($__hMyParent) Then Exit MsgBox(16, "Server Error", "Server Shutdown unintentionally")
 
-	; server status
+	; log the server status
 	_Internal_ServerStatus()
 
-	; eco mode when no client is online
-	if _netcode_ParentGetClients($__hMyParent, 1) = 0 Then Sleep(50)
+	; spare the hradware resources if no client is connected
+	if _netcode_ParentGetClients($__hMyParent, True) = 0 Then Sleep(50)
 WEnd
 
 
@@ -63,8 +76,11 @@ WEnd
 ; =========================================================================
 ; Parent Events
 
+; updates the file amount progress of the client
 Func _Event_FilesAmount(Const $hSocket, $sText)
 	if StringLen($sText) > 10 Then Return
+
+	if $sText == "Null" Then $sText = Null
 
 	_netcode_SocketSetVar($hSocket, "FilesProgress", $sText)
 EndFunc
@@ -143,7 +159,7 @@ Func _Event_Download(Const $hSocket, $sData)
 	_netcode_SocketSetVar($hSocket, "FileDownloadProgress", Round(($nFileProgressSize / $nFileSize) * 100, 0))
 EndFunc
 
-; closes the file handle
+; closes the file handle once the client has finished uploading the file
 Func _Event_DownloadFinished(Const $hSocket)
 	Local $hFileHandle = _netcode_SocketGetVar($hSocket, "FileDownloadHandle")
 	if $hFileHandle = Null Then Return
@@ -158,7 +174,8 @@ EndFunc
 Func _Event_Disconnect(Const $hSocket, $nDisconnectError, $bDisconnectTriggered)
 	Local $hFileHandle = _netcode_SocketGetVar($hSocket, "FileDownloadHandle")
 	if $hFileHandle <> Null Then
-		; close the file handle if the download abrupted and also delete the file because its incomplete
+
+		; close the file handle if the download abrupted and also delete the file because its likely incomplete
 		FileClose($hFileHandle)
 		FileDelete(_netcode_SocketGetVar($hSocket, "FileDownloadPath"))
 	EndIf
@@ -201,17 +218,20 @@ EndFunc
 ; =========================================================================
 ; Internals
 
+; logs the server status
 Func _Internal_ServerStatus()
 
 	Local Static $hTimer = TimerInit()
-	Local $nStatusIntervall = 5000 ; 10 seconds
+	Local $nStatusIntervall = 5000 ; every 5 seconds
 
 	if TimerDiff($hTimer) < $nStatusIntervall Then Return
 
 	ConsoleWrite("/////////////////// Creating Status Report \\\\\\\\\\\\\\\\\\\" & @CRLF)
 
-	; get all clients of the parent and list their download progresses
+	; get all clients of the parent
 	Local $arClients = _netcode_ParentGetClients($__hMyParent)
+
+	; if there is no client
 	If UBound($arClients) = 0 Then
 		ConsoleWrite("Server has no Clients" & @CRLF)
 		ConsoleWrite("\\\\\\\\\\\\\\\\\\\  End of Status Report  ///////////////////" & @CRLF)
@@ -225,26 +245,32 @@ Func _Internal_ServerStatus()
 	Local $nFileProgress = 0
 	Local $sText = ""
 
+	; and list their download progresses
 	For $i = 0 To UBound($arClients) - 1
-;~ 		If _netcode_SocketGetVar($arClients[$i], "FileDownloadHandle") = Null Then
 		If _netcode_SocketGetVar($arClients[$i], "FilesProgress") = Null Then
+
 			Local $nBytesPerSecond = _netcode_SocketGetRecvBytesPerSecond($arClients[$i], 2)
+
+			; if the client is active but not uploading files
 			if $nBytesPerSecond > 0 Then
 				ConsoleWrite(@TAB & "Socket @ " & $arClients[$i] & " is active with " & $nBytesPerSecond & " MB/s" & @CRLF)
 			Else
 				ConsoleWrite(@TAB & "Socket @ " & $arClients[$i] & " is inactive" & @CRLF)
 			EndIf
 		Else
+
+			; get file upload variables
 			$nFileSize = _netcode_SocketGetVar($arClients[$i], "FileDownloadSize")
 			$nFileProgress = _netcode_SocketGetVar($arClients[$i], "FileDownloadProgress")
 			$sText = _netcode_SocketGetVar($arClients[$i], "FilesProgress")
 
-;~ 			ConsoleWrite(@TAB & "Socket @ " & $arClients[$i] & " - Progress " & $nFileProgress & "%" & @TAB & "of " & Round($nFileSize / 1048576, 2) & " MB" & @TAB & @TAB & _netcode_SocketGetRecvBytesPerSecond($arClients[$i], 2) & " MB/s" & @CRLF)
+			; and log them to the console
 			ConsoleWrite(@TAB & "Socket @ " & $arClients[$i] & " - Files " & $sText & @TAB & "Current (" & $nFileProgress & "%) of " & Round($nFileSize / 1048576, 2) & " MB" & @TAB & @TAB & _netcode_SocketGetRecvBytesPerSecond($arClients[$i], 2) & " MB/s" & @CRLF)
 		EndIf
 	Next
 
 	ConsoleWrite("\\\\\\\\\\\\\\\\\\\  End of Status Report  ///////////////////" & @CRLF)
 
+	; reset timer
 	$hTimer = TimerInit()
 EndFunc
