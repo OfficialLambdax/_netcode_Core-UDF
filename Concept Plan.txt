@@ -1,5 +1,5 @@
 
-Concept Phase Todo list as of 01.03.2022 (MM.DD.YYYY)
+Concept Phase Todo list as of 03.13.2022 (MM.DD.YYYY)
 	
 	- Inheritation System
 	
@@ -48,8 +48,36 @@ Concept Phase Todo list as of 01.03.2022 (MM.DD.YYYY)
 		
 		Compatibility stages, for other event based UDF's, could also be easiely implemented then.
 		The compatibility could be in a seperate addon that the user just needs to #include in his script
-		and tell a socket to be compatible. The addon itself then modifies _netcode_Core in the ways necessary
+		and tell a socket to be compatible. The addon itself then sets the required stages
 		and keeps its as easy for the user as possible.
+		
+		The order of the stages should no longer be hardcoded, but dynamic and modular.
+		The stages itself get a name like "auth" "handshake" and they get called. The default order should be preset in a array for
+		the parent. It could be changed with the options.
+		
+		The default order could be
+			Auth
+			
+			PreSyn
+			
+			handshake
+			
+			User
+			
+			ExAuth
+			
+			Syn
+			
+			netcode
+			
+		Within the presyn stage only the order is exchanged and how todo the stages. So if the parent has TLS enabled then the client
+		has to use a different handshake method. Or if the server uses a preshared key then the client has to proof in the handshake stage
+		that it knows that.
+		
+		The syn stage then should do the option inheritation. And this stage also should include user defined syns. So that a dev
+		can include his own syns.
+		
+		The ExAuth stage should be seperated from the user stage. A dev might dont want to use the user management, but maybe exauth only.
 		
 		
 	- Pre stages packet format
@@ -315,6 +343,12 @@ Concept Phase Todo list as of 01.03.2022 (MM.DD.YYYY)
 		
 		I have to setup the sub streams in a way that it can be made sure that the sub streams always originate
 		from the same source as the main stream. So that no third party can thieve a sub stream.
+		
+		Edit:
+		If a dev decides to have the same manage mode for his main and sub stream than it would make a
+		difference if both streams come with different rulesets.
+		The Main stream could for example be extremly limited in bps (bytes per second) or pbs (packets
+		per second) for performance reasons so that his sub streams get the whole bandwith.
 	
 	
 	- Documentation
@@ -352,3 +386,11 @@ Concept Phase Todo list as of 01.03.2022 (MM.DD.YYYY)
 		I have to figure out if it makes more sense to run all sockets with 'select' and then
 		priotize or before the 'select' call.
 		
+		
+	- Non blocking Events
+		
+		A dev should be able to code events, that would usually take a while to complete and therefore block the server or client, in a way
+		that they are not blocking. So that the event gets repeateadly called until the event returns True.
+		
+		Since Autoit runs in a single thread and multi processing is somewhat complex, it might be more feasable to give a dev the option
+		to make his events non blocking to keep a server or client run smooth.

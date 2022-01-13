@@ -33,7 +33,7 @@
 		Socket Holding
 			Sockets can be set OnHold with _netcode_SetSocketOnHold(). _netcode will pause executing packets from Sockets that are OnHold.
 			To be clear: Just not be executed, _netcode will still receive, unpack and store incoming packets. However only until the Buffer
-			limit is reached. Every packet exceeding the buffer will be voided. But the sender wont overflow the buffer since it knows the status
+			limit is reached. Every packet exceeding the buffer will be voided. But the sender wont overflow the buffer since it calculates the status
 			of the receivers buffer.
 
 		Active and Inactive Sockets
@@ -49,9 +49,39 @@
 			Nearly only active sockets actually take performance.
 
 		Staging
-			_netcode uses so called Stages. Each and every incomming connection needs to stage through several stages before it is possible to interact with them.
+			_netcode uses so called Stages. Each and every incomming connection needs to stage through several layers before it is possible to interact with it or
+			before the clients are able to communicate with the events.
 			Within these stages a session key is handshaked, options are synced, the optional user login is done and more. A connect client for example always inherits
-			the options from the server and obviously that needs to be done at some point.
+			the options from the server and obviously that needs to be done at some point. _netcode does all of that automatically. If you set or overwrote the
+			default 'connection' event then you get the last, successfully executed stage, told with the second param $nStage.
+
+			Stages as of version v0.1.5.20 (to be overhauled)
+
+				$nStage = 0 (connection stage)
+					Initial connection stage. Will be thrown when a client just got created / connected.
+
+				$nStage = 1 (auth stage)
+					The client sends a Auth string to the server, to indicate that it wants to speak to a _netcode server, the server then has to
+					answer with a specific string to indicate to the client that it is a _netcode server. If both send the right strings then this stage is a success.
+
+				$nStage = 2 (handshake stage)
+					This stage is a success once both the server and the client handshaked a session key.
+
+				$nStage = 3 (user stage) skipped if the optional user management is not used.
+					The client sends his username and his SHA256 password hash to the server. The server checks that. If the check passes then
+					this stage is done.
+
+				$nStage = 4 (presyn stage)
+					The connect client wants to inherit the server settings. For this the server here send the client his settings.
+					If the client successfully applied the settings to itself then this stage is done.
+
+				$nStage = 9 (ready stage)
+					This stage is no other reason to exist then that it patches a bug.
+
+				$nStage = 10 (netcode stage)
+					Once this stage is reached both the server and client can use _netcode_TCPSend() and execute events on each other.
+
+
 
 		Events
 			_netcode Supports 2 different types of Events. Callback Events and Non Callback Events. The difference of them is described below.
@@ -413,7 +443,7 @@ Func _netcode_Loop(Const $hListenerSocket)
 		Return SetError(1, 0, __Trace_FuncOut("_netcode_Loop", False)) ; socket is unknown
 	EndIf
 
-	if $__net_nInt_RecursionCounter > 0 Then __Trace_Error(0, 0, "FATAL WARNING: Recursion level @ " & $__net_nInt_RecursionCounter & ". Script might crash. See _netcode_SetEvent() Remarks.")
+	if $__net_nInt_RecursionCounter > 1 Then __Trace_Error(0, 0, "FATAL WARNING: Recursion level @ " & $__net_nInt_RecursionCounter & ". Script might crash. See _netcode_SetEvent() Remarks.")
 
 	; work through send quo
 	if Not $__net_bPacketConfirmation Then __netcode_SendPacketQuoIDQuerry()
