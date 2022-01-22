@@ -716,12 +716,11 @@ EndFunc   ;==>_netcode_TCPListen
 ; Errors ........: https://docs.microsoft.com/de-de/windows/win32/winsock/windows-sockets-error-codes-2
 ; Modified ......:
 ; Remarks .......: A non blocking connect call, will always return a socket even so that the socket isnt connected yet.
-;				   Those sockets are also not yet added to _netcode. So _netcode_CheckSocket() will return 0.
+;				   Those sockets are added to _netcode but with ID 3. So _netcode_CheckSocket() will return 3.
 ;				   Within _netcode_Loop() the pending connection will be checked. And when the connect was a success then
 ;				   Automatically added to _netcode. The connection event will also be called.
 ;				   If the connection failed or timeouted then the disconnected event will be called.
-;				   You can already store data to the pending sockets. But _netcode_SetEvent() wont work until the sockets
-;				   are added to _netcode. Add socket specific events once the connection event is called.
+;				   You can already store data to the pending sockets or add events with _netcode_SetEvent().
 ; Example .......: No
 ; ===============================================================================================================================
 Func _netcode_TCPConnect($sIP, $vPort, $bDontAuthAsNetcode = False, $sUsername = "", $sPassword = "", $bNonBlocking = False, $nTimeout = 2000)
@@ -981,14 +980,16 @@ EndFunc
 
 ; #FUNCTION# ====================================================================================================================
 ; Name ..........: _netcode_StageGetErrorDescription
-; Description ...:
+; Description ...: Returns information as String for the given socket, stage and error.
 ; Syntax ........: _netcode_StageGetErrorDescription($hSocket[, $sStageName = ""[, $nError = 0]])
-; Parameters ....: $hSocket             - a handle value.
-;                  $sStageName          - [optional] a string value. Default is "".
-;                  $nError              - [optional] a general number value. Default is 0.
-; Return values .: None
+; Parameters ....: $hSocket             - The socket
+;                  $sStageName          - [optional] Stagename
+;                  $nError              - [optional] Error
+; Return values .: A String
+;				 : ""					= Empty if there was no error
 ; Modified ......:
-; Remarks .......:
+; Remarks .......: Neither the Stagename nor the Error need to be given. _netcode will read the last error from the last stage
+;				 : itself.
 ; Example .......: No
 ; ===============================================================================================================================
 Func _netcode_StageGetErrorDescription($hSocket, $sStageName = "", $nError = 0)
@@ -1144,12 +1145,14 @@ EndFunc
 ; Name ..........: _netcode_StageGetExtendedDescription
 ; Description ...:
 ; Syntax ........: _netcode_StageGetExtendedDescription($hSocket[, $sStageName = ""[, $nExtended = 0]])
-; Parameters ....: $hSocket             - a handle value.
-;                  $sStageName          - [optional] a string value. Default is "".
-;                  $nExtended           - [optional] a general number value. Default is 0.
-; Return values .: None
+; Parameters ....: $hSocket             - The socket
+;                  $sStageName          - [optional] Stagename
+;                  $nError              - [optional] Extended
+; Return values .: A String
+;				 : ""					= Empty if there was no Extended
 ; Modified ......:
-; Remarks .......:
+; Remarks .......: Neither the Stagename nor the Extended need to be given. _netcode will read the last extended from the last stage
+;				 : itself.
 ; Example .......: No
 ; ===============================================================================================================================
 Func _netcode_StageGetExtendedDescription($hSocket, $sStageName = "", $nExtended = 0)
@@ -1249,11 +1252,12 @@ EndFunc
 ; Name ..........: _netcode_StageGetExtraInformation
 ; Description ...: Returns additional Data.
 ; Syntax ........: _netcode_StageGetExtraInformation($hSocket[, $sStageName = ""])
-; Parameters ....: $hSocket             - a handle value.
-;                  $sStageName          - [optional] a string value. Default is "".
+; Parameters ....: $hSocket             - The socket
+;                  $sStageName          - [optional] Stagename
 ; Return values .: None
 ; Modified ......:
-; Remarks .......:
+; Remarks .......: If you a Stagename then this function will return the extra information set in the given stage.
+;				 : Otherwise it will give the latest set extra information.
 ; Example .......: No
 ; ===============================================================================================================================
 Func _netcode_StageGetExtraInformation($hSocket, $sStageName = "")

@@ -97,10 +97,9 @@
 
 		- A few inheritation integrations where also done. But the inheritation system is not done yet.
 		
-		
 		- _netcode_SocketGetRecvBytesPerSecond() and _netcode_SocketGetSendBytesPerSecond() got optimised a little.
 		
-		_ $__net_bTraceEnable is not at default set to True if the Script is not compiled.
+		_ $__net_bTraceEnable is now at default set to True if the Script is not compiled.
 		
 		- _netcode_TCPSend() now refuses to quo up packets if the socket is not in the required 'netcode' stage.
 		
