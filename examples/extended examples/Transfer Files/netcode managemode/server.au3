@@ -17,10 +17,10 @@ Global $__nHowManyClientsAreAllowedAtOnce = 10
 ; where to store the files and folders
 Global $__sfDownloadPath = @ScriptDir & "\Downloads"
 
-; witch each client a session key is handshake. The current method is not safe against man in the middle attacks
+; witch each client a session key is handshaked. The current method is not safe against man in the middle attacks
 Global $__bUseEncryption = False
 
-; set to true if you want to deny the upload of a file that it already present in the storage
+; set to true if you want to deny the upload of a file that is already present in the storage
 Global $__bDenyOverwritingOfExistingFiles = False
 
 
@@ -196,13 +196,13 @@ Func _Event_Disconnect(Const $hSocket, $nDisconnectError, $bDisconnectTriggered)
 EndFunc
 
 ; just a display notice
-Func _Event_Connect(Const $hSocket, $nStage, $vData)
-	Switch $nStage
+Func _Event_Connect(Const $hSocket, $sStage)
+	Switch $sStage
 
-		Case 0
+		Case 'auth'
 			ConsoleWrite("New Client @ " & $hSocket & @CRLF)
 
-		Case 10
+		Case 'netcode'
 			ConsoleWrite("Client @ " & $hSocket & " Ready" & @CRLF)
 
 	EndSwitch

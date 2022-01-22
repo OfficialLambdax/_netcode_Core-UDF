@@ -1,3 +1,135 @@
+14.01.2022 (DD/MM/YYYY) 0.1.5.21
+	
+	SCRIPT BREAKING CHANGES
+	THIS VERSION IS INCOMPATIBLE WITH ALL PREVIOUS VERSIONS
+	Head to the "What you need to change in your scripts." point to see what your script needs to be adjusted too.
+
+	Fixed
+		- Fixed 2 recursion issues that could have arised within __netcode_RemoveSocket() when the disconnected event called
+		_netcode_TCPDisconnect() on another socket that also called the same function on the previous socket.
+		
+		__netcode_RemoveSocket(socket 1)
+			_MyEvent_Disconnected(socket 1) (your event for socket 1)
+				_netcode_TCPDisconnect(socket 2) (calling the disconnect on socket 2)
+					__netcode_RemoveSocket(socket 2)
+						_MyEvent_Disconnected(socket 2) (your event for socket 2)
+							_netcode_TCPDisconnect(socket 1) (calling the disconnect on socket 1)
+								__netcode_RemoveSocket(socket 1)
+									_MyEvent_Disconnected(socket 1) (again)
+										_netcode_TCPDisconnect(socket 2)
+											__netcode_RemoveSocket(socket 2)
+												_MyEvent_Disconnected(socket 2) (and again)
+													_netcode_TCPDisconnect(socket 1)
+														..... n (until crash)
+														
+		This no longer happens.
+	
+	Added
+		- _netcode_StageGetExtraInformation(). Returns extra information for the given stage. Like the username that the client send
+		in the user stage or the session key from the handshake stage. This func pretty much gives the exact same data as $vData was before,
+		within the 'connection' event.
+		
+		- _netcode_GetCurrentStageName(). Returns the current stage the socket is in.
+		
+		- _netcode_StageGetError(). Returns the error the socket faced in the given stage.
+		
+		- _netcode_StageGetExtended(). Returns the extended codes that got set in the given stage for the socket.
+		
+		- _netcode_StageGetErrorDescription(). Converts the stage error into a Readable Information.
+		
+		- _netcode_StageGetExtendedDescription(). As above.
+		
+		- added a new performance example named "active clients response time test"
+		
+		The added functions could, for example, be used in the 'connection' or 'disconnected' event to either treat a specific error different or
+		just to display the reason why something failed, either for debugging or something else.
+		The Error 2 in Stage "user" with Extended 3 returned for a connect client for example means that the user gave the wrong username
+		and password.
+	
+	Changes
+	
+		- The entire stage order and how they work got changed.
+			The new order is as follows
+			
+			No Number. "connect"
+			0. "auth"
+			1. "presyn"
+			2. "handshake"
+			3. "syn"
+			4. "user" (if enabled)
+			5. "mfa" (not implemented)
+			5. "ready" (accept client only aka server side)
+			10. "netcode"
+			
+			How the stages work can be viewed in .\changelog\v0.1.5.21 stage reorder.jpg
+			
+			Tl;dr of the stage rework.
+			The new system uses a pre shared key created from the socket seed, with which every pre handshake data is encrypted with.
+			And the user stage on the connect client side can now return the right error.
+			
+		
+		- The connection event no longer gets called with 3 params and no longer with an Integer stage ID.
+			Func _MyEvent_Connection(Const $hSocket, $sStage)
+			
+			$hSocket = The socket
+			$sStage = The Stagename as String
+			
+			The previous 3. param $vData got removed. But the data previously given with it can be retrieved with _netcode_StageGetExtraInformation().
+			
+			The connection event will be called when ever a stage successfully finished, just like before.
+			
+			
+		- _netcode_TCPConnect() and _netcode_AuthToNetcodeServer() got a non blocking toggle.
+			It is now possible to call both functions non blocking. This means that the functions will return with a socket even tho
+			that the connection was not established yet. Those pending sockets get the new pending ID 3. _netcode_CheckSocket() will return that ID.
+			
+			Within _netcode_Loop() _netcode will check these pending sockets automatically or if they timeouted. If the connection
+			succeded then the sockets are automatically added to _netcode and the connection event will be thrown.
+			So you could already save data to a pending socket with _netcode_SocketSetVar() or add events to it with _netcode_SetEvent().
+			
+			If the connection attempt failed, for whatever reason, then the socket is removed and the disconnected event will be thrown.
+			Any data that was stored to it will be, right after the event call, wiped, just like with every other socket usually.
+			
+			All pending sockets are bound to the fictive "000" socket. For that the "000" needs to be present.
+			_netcode creates it itself. Said socket will also be removed once all pending sockes are gone and when no 
+			other connect client is present.
+
+
+		- A few inheritation integrations where also done. But the inheritation system is not done yet.
+		
+		
+		- _netcode_SocketGetRecvBytesPerSecond() and _netcode_SocketGetSendBytesPerSecond() got optimised a little.
+		
+		_ $__net_bTraceEnable is not at default set to True if the Script is not compiled.
+		
+		- _netcode_TCPSend() now refuses to quo up packets if the socket is not in the required 'netcode' stage.
+		
+		- All examples got updated to the latest version.
+		
+	Removals
+	
+		- The backwards compatibility for plain text passwords on the server side, kept since v0.1.5.9, got removed.
+		
+		- The backwards compatibility for the connection and disconnected event, kept since v0.1.5, got removed too.
+		
+	What you need to change in your scripts.
+		
+		A maximum of 3 minor changes needs to be made.
+		
+		If you set the $arKeyPairs parameter in the func _netcode_TCPConnect() previously then remove that. That param is no longer present.
+		
+		If you use the "connection" event, either as default or as a socket specific then remove the 3rd param.
+		The event can no longer look like this:	Func _Event_Connection($hSocket, $nStage, $vData).
+		It has to look like this:				Func _Event_Connection($hSocket, $sStage)
+		
+		The second params in the "connection" event no longer gives the stage id as an Integer.
+		Instead it now gives the stagename as String. So a socket is ready once it reached stage "netcode".
+		Previously you might did this:		if $nStage <> 10 Then Return
+		Now you do:							if $sStage <> "netcode" Then Return
+		
+		As a reminder, this version is entirely incompatible with any previous _netcode release.
+
+
 10.01.2022 (DD/MM/YYYY) 0.1.5.20
 
 	Fixed

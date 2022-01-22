@@ -26,7 +26,7 @@ WEnd
 ; my event callback function
 Func _Event_MyServerEvent($hSocket, $arExampleArray)
 
-	; disconnect the client first
+	; disconnect the client first so that it can also show the array for comparison
 	_netcode_TCPDisconnect($hSocket)
 
 	; check if an array got send

@@ -120,8 +120,8 @@ EndFunc
 
 ; useless event in this script. We only want a notice once, that is when the client has
 ; staged to 10.
-Func _Event_Connect(Const $hSocket, $nStage)
-	if $nStage <> 10 Then Return
+Func _Event_Connect(Const $hSocket, $sStage)
+	if $sStage <> 'netcode' Then Return
 	ConsoleWrite("New Socket @ " & $hSocket & @CRLF)
 EndFunc
 

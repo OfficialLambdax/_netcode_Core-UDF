@@ -31,19 +31,14 @@ Next
 ; show array
 _ArrayDisplay($arExampleArray, "I am going to send this array to the server")
 
-
-; send the array and use the simple params serializer
+; quo the sending of the array and use the simple params serializer
 _netcode_TCPSend($hMyClient, 'MyServerEvent', _netcode_sParams($arExampleArray))
 
+; send the data
+_netcode_Loop($hMyClient)
 
-; loop
-While Sleep(10)
+; disconnect from the server once data is executed by the server
+_netcode_TCPDisconnectWhenReady($hMyClient)
 
-	; loop the client socket and exitloop if we disconnected
-	If Not _netcode_Loop($hMyClient) Then ExitLoop
-
-
-WEnd
-
-; show again for comparison
+; and show the array again for comparison
 _ArrayDisplay($arExampleArray, "Client side. For comparison.")

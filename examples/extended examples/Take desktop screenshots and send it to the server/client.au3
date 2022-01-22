@@ -31,7 +31,7 @@ _netcode_SetEvent($hMyClient, 'Close', "_Event_Close")
 While True
 	If Not _netcode_Loop($hMyClient) Then Exit
 
-	if $__bToggle Then _netcode_TCPSend($hMyClient, 'SetPicture', _Screenshot_ReturnData(20))
+	if $__bToggle Then _netcode_TCPSend($hMyClient, 'SetPicture', BinaryToString(_Screenshot_ReturnData(20)))
 WEnd
 
 

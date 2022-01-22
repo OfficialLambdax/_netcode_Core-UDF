@@ -10,11 +10,11 @@ Local $hMyClient = _netcode_TCPConnect('127.0.0.1', 1225)
 if Not $hMyClient Then Exit MsgBox(16, "Client Error", "Cannot connect to Server")
 
 
-; quo a message to be send to the server
+; quo a message for the servers 'MyEvent' event
 _netcode_TCPSend($hMyClient, 'MyEvent', 'Hello World')
 
-; send message
+; send the message
 _netcode_Loop($hMyClient)
 
-; disconnect from the server once data is received
+; disconnect from the server once data is executed by the server
 _netcode_TCPDisconnectWhenReady($hMyClient)

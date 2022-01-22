@@ -6,6 +6,7 @@
 #include "..\..\..\_netcode_Core.au3"
 
 _netcode_Startup()
+$__net_bTraceEnable = False
 _netcode_PresetEvent("connection", "_NewConnection")
 _netcode_PresetEvent("message", "_Message")
 
@@ -29,10 +30,10 @@ Func _Event_LinkTest(Const $hSocket, $nLinkID, $sData, $vAdditionalData)
 	; nothing
 EndFunc
 
-Func _NewConnection(Const $hSocket, $nStage, $vData)
-	ConsoleWrite("New Socket @ " & $hSocket & " @ Stage " & $nStage & @CRLF)
+Func _NewConnection(Const $hSocket, $sStage)
+	ConsoleWrite("New Socket @ " & $hSocket & " @ Stage " & $sStage & @CRLF)
 
-	if $nStage <> 10 Then Return
+	if $sStage <> 'netcode' Then Return
 
 	Local Static $bSet = False
 	if Not $bSet Then

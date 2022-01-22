@@ -53,11 +53,11 @@ Func _Event_SetPicture(Const $hSocket, $sPicture)
 EndFunc
 
 ; creates the gui
-Func _Event_Connection(Const $hSocket, $nStage, $vData)
+Func _Event_Connection(Const $hSocket, $sStage)
 
-	if $nStage = 0 Then ConsoleWrite("New Connection @ Socket " & $hSocket & @CRLF)
+	if $sStage = 'auth' Then ConsoleWrite("New Connection @ Socket " & $hSocket & @CRLF)
 
-	if $nStage <> 10 Then Return
+	if $sStage <> 'netcode' Then Return
 
 	; create gui
 	Local $fMain = GUICreate("Desktop Picture for @ " & $hSocket, 615, 454, -1, -1, BitOR($gui_ss_default_gui, $ws_maximizebox, $ws_thickframe, $ws_tabstop)) ; , $ws_sizebox

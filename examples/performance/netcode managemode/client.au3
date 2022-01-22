@@ -8,6 +8,7 @@
 Local $hClientSocket = False
 
 _netcode_Startup()
+$__net_bTraceEnable = False
 _netcode_PresetEvent("connection", "_NewConnection")
 
 
@@ -32,6 +33,6 @@ While _netcode_Loop($hClientSocket)
 	EndIf
 WEnd
 
-Func _NewConnection(Const $hSocket, $nStage, $vData)
-	ConsoleWrite("New Socket @ " & $hSocket & " @ Stage " & $nStage & @CRLF)
+Func _NewConnection(Const $hSocket, $sStage)
+	ConsoleWrite("New Socket @ " & $hSocket & " @ Stage " & $sStage & @CRLF)
 EndFunc

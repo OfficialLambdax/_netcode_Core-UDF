@@ -53,32 +53,26 @@
 			before the clients are able to communicate with the events.
 			Within these stages a session key is handshaked, options are synced, the optional user login is done and more. A connect client for example always inherits
 			the options from the server and obviously that needs to be done at some point. _netcode does all of that automatically. If you set or overwrote the
-			default 'connection' event then you get the last, successfully executed stage, told with the second param $nStage.
+			default 'connection' event then you get the last, successfully executed stage, told with the second param $sStage.
 
-			Stages as of version v0.1.5.20 (to be overhauled)
+			Stages as of version v0.1.5.21 (to be overhauled)
 
-				$nStage = 0 (connection stage)
-					Initial connection stage. Will be thrown when a client just got created / connected.
+				$sStage = 'connect' (connection stage)
+					Will be thrown once a new socket is connected.
 
-				$nStage = 1 (auth stage)
-					The client sends a Auth string to the server, to indicate that it wants to speak to a _netcode server, the server then has to
-					answer with a specific string to indicate to the client that it is a _netcode server. If both send the right strings then this stage is a success.
+				$sStage = 'auth' (auth stage)
 
-				$nStage = 2 (handshake stage)
-					This stage is a success once both the server and the client handshaked a session key.
+				$sStage = 'presyn' (presyn stage)
 
-				$nStage = 3 (user stage) skipped if the optional user management is not used.
-					The client sends his username and his SHA256 password hash to the server. The server checks that. If the check passes then
-					this stage is done.
+				$sStage = 'handshake' (handshake stage)
 
-				$nStage = 4 (presyn stage)
-					The connect client wants to inherit the server settings. For this the server here send the client his settings.
-					If the client successfully applied the settings to itself then this stage is done.
+				$sStage = 'syn' (syn stage)
 
-				$nStage = 9 (ready stage)
-					This stage is no other reason to exist then that it patches a bug.
+				$sStage = 'user' (user stage)
 
-				$nStage = 10 (netcode stage)
+				$sStage = 'ready' (ready stage)
+
+				$sStage = 'netcode' (netcode stage)
 					Once this stage is reached both the server and client can use _netcode_TCPSend() and execute events on each other.
 
 
@@ -371,11 +365,12 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.20"
+Global Const $__net_sNetcodeVersion = "0.1.5.21"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
 __netcode_EventStrippingFix()
+if Not @Compiled Then $__net_bTraceEnable = True
 
 ; ===================================================================================================================================================
 ; User Defined Functions below
@@ -449,6 +444,9 @@ Func _netcode_Loop(Const $hListenerSocket)
 	if Not $__net_bPacketConfirmation Then __netcode_SendPacketQuoIDQuerry()
 	__netcode_SendPacketQuo()
 
+	; check for pending connections
+	__netcode_ParentCheckNonBlockingConnectClients("000")
+
 	Switch $nSocketIs
 
 		Case 1 ; is Listener
@@ -479,11 +477,12 @@ Func _netcode_Loop(Const $hListenerSocket)
 						Else
 
 							; if we successfully added the socket then call the connection event on stage 0
-							__netcode_ExecuteEvent($hNewSocket, "connection", _netcode_sParams(0, _netcode_SocketToIP($hNewSocket)))
+							__netcode_ExecuteEvent($hNewSocket, "connection", 'connect')
 						EndIf
 					EndIf
 
 				EndIf
+
 			EndIf
 
 			; get all clients connected to the parent
@@ -544,6 +543,7 @@ Func _netcode_RecvManageExecute(Const $hSocket, $hParentSocket = False)
 		__netcode_TCPCloseSocket($hSocket)
 		__netcode_RemoveSocket($hSocket, False, False, $nError)
 	EndIf
+
 	If $sPackages = "" Then
 ;~ 		__Trace_Error(0, 1, "", "
 		Return SetError(0, 1, __Trace_FuncOut("_netcode_RecvManageExecute", False)) ; we just didnt receive anything
@@ -701,254 +701,569 @@ EndFunc   ;==>_netcode_TCPListen
 
 ; #FUNCTION# ====================================================================================================================
 ; Name ..........: _netcode_TCPConnect
-; Description ...: Tries to connect to the given ip and port. Will also login if a username and password is given.
-; Syntax ........: _netcode_TCPConnect($sIP, $sPort[, $bDontAuthAsNetcode = False[, $sUsername = ""[, $sPassword = ""[,
-;                  $arKeyPairs = False]]]])
-; Parameters ....: $sIP                 - IP to connect to
-;                  $sPort               - Port to connect to
-;                  $bDontAuthAsNetcode  - [optional] Set to True if you want to call _netcode_AuthToNetcodeServer() yourself.
-;                  $sUsername           - [optional] Username if Server requires that
-;                  $sPassword           - [optional] Plain text Password if Server requires that
-;                  $arKeyPairs          - [optional] Ignore this parameter
-; Return values .: A socket handle		= If the function succeded
-; 				   False				= If the server cannot be reached, the login failed or anything within the staging process.
-; Errors ........: See MSDN and _netcode_AuthToNetcodeServer() for the error codes.
+; Description ...: Connects to the given IP and Port either Blocking or non Blocking
+; Syntax ........: _netcode_TCPConnect($sIP, $vPort[, $bDontAuthAsNetcode = False[, $sUsername = ""[, $sPassword = ""[,
+;                  $bNonBlocking = False[, $nTimeout = 2000]]]]])
+; Parameters ....: $sIP                 - The IP to connect to
+;                  $vPort               - The port to connect to
+;                  $bDontAuthAsNetcode  - [optional] Set to True if you want to call _netcode_AuthToNetcodeServer() yourself
+;                  $sUsername           - [optional] If the Server is Usermanaged then enter the Username here
+;                  $sPassword           - [optional] If the Server is Usermanaged then enter the Password here
+;                  $bNonBlocking        - [optional] Set to True if you want the Connect call to be Non Blocking. See Remarks.
+;                  $nTimeout            - [optional] Time in ms
+; Return values .: A Socket				= When the connect call was a success
+;				   False				= if it wasnt
+; Errors ........: https://docs.microsoft.com/de-de/windows/win32/winsock/windows-sockets-error-codes-2
 ; Modified ......:
-; Remarks .......: The Function call is blocking. The socket created however is set to be non blocking and the naggle algorhytm will be disabled.
+; Remarks .......: A non blocking connect call, will always return a socket even so that the socket isnt connected yet.
+;				   Those sockets are also not yet added to _netcode. So _netcode_CheckSocket() will return 0.
+;				   Within _netcode_Loop() the pending connection will be checked. And when the connect was a success then
+;				   Automatically added to _netcode. The connection event will also be called.
+;				   If the connection failed or timeouted then the disconnected event will be called.
+;				   You can already store data to the pending sockets. But _netcode_SetEvent() wont work until the sockets
+;				   are added to _netcode. Add socket specific events once the connection event is called.
 ; Example .......: No
 ; ===============================================================================================================================
-Func _netcode_TCPConnect($sIP, $sPort, $bDontAuthAsNetcode = False, $sUsername = "", $sPassword = "", $arKeyPairs = False)
-	__Trace_FuncIn("_netcode_TCPConnect", $sIP, $sPort, $bDontAuthAsNetcode, $sUsername, "$sPassword", "$arKeyPairs")
+Func _netcode_TCPConnect($sIP, $vPort, $bDontAuthAsNetcode = False, $sUsername = "", $sPassword = "", $bNonBlocking = False, $nTimeout = 2000)
+	__Trace_FuncIn("_netcode_TCPConnect", $sIP, $vPort, $bDontAuthAsNetcode, $sUsername, "$sPassword", $bNonBlocking)
 
+	Local $hSocket = 0
 	Local $nError = 0
+	Local $nExtended = 0
+	Local $bAuth = False
 
-	; connect to ip and port
-;~ 	Local $hSocket = TCPConnect($sIP, $sPort) ; for reference
-	Local $hSocket = __netcode_TCPConnect($sIP, $sPort)
-	If $hSocket = -1 Then
-		$nError = @error
-		__Trace_Error($nError, 0)
-		Return SetError($nError, 0, __Trace_FuncOut("_netcode_TCPConnect", False))
-	EndIf
+	If $bNonBlocking Then
 
-	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(0, $sIP))
-
-	__netcode_AddSocket($hSocket, '000', 0, $sIP, $sPort, $sUsername, $sPassword)
-	If Not $bDontAuthAsNetcode Then
-		If Not _netcode_AuthToNetcodeServer($hSocket, $sUsername, $sPassword, $arKeyPairs) Then
+		; ipv4 and non blocking
+		$hSocket = __netcode_TCPConnect($sIP, $vPort, 2, True, $nTimeout)
+		if $hSocket = -1 Then
 			$nError = @error
-			Local $nExtended = @extended
-			__netcode_TCPCloseSocket($hSocket)
-			__netcode_RemoveSocket($hSocket)
-			Return SetError($nError, $nExtended, __Trace_FuncOut("_netcode_TCPConnect", False))
+			__Trace_Error($nError, 0)
+			Return SetError($nError, 0, __Trace_FuncOut("_netcode_TCPConnect", False))
 		EndIf
+
+		; save ip, port, username and password
+		__netcode_SocketSetIPAndPort($hSocket, $sIP, $vPort)
+		__netcode_SocketSetUsernameAndPassword($hSocket, $sUsername, $sPassword)
+
+		; add the non blocking connect call to the list
+		__netcode_ParentAddNonBlockingConnectClient("000", $hSocket, $bDontAuthAsNetcode, $nTimeout)
+
+		Return __Trace_FuncOut("_netcode_TCPConnect", $hSocket)
+
+	Else
+
+		; ipv4 and blocking
+		$hSocket = __netcode_TCPConnect($sIP, $vPort, 2, False, $nTimeout)
+
+		; if we couldnt connect
+		if $hSocket = -1 Then
+			$nError = @error
+			__Trace_Error($nError, 0)
+			Return SetError($nError, 0, __Trace_FuncOut("_netcode_TCPConnect", False))
+		EndIf
+
+		; add socket to _netcode
+		__netcode_AddSocket($hSocket, '000', 0, $sIP, $vPort, $sUsername, $sPassword)
+
+		; execute connection event
+		__netcode_ExecuteEvent($hSocket, "connection", 'connect')
+
+		; auth to netcode server if toggled on
+		if Not $bDontAuthAsNetcode Then
+
+			$bAuth = _netcode_AuthToNetcodeServer($hSocket, $sUsername, $sPassword, $bNonBlocking, $nTimeout)
+			If Not $bAuth Then
+				$nError = @error
+				$nExtended = @extended
+
+				__netcode_TCPCloseSocket($hSocket)
+				__netcode_RemoveSocket($hSocket)
+				Return SetError($nError, $nExtended, __Trace_FuncOut("_netcode_TCPConnect", False))
+			EndIf
+
+		EndIf
+
+		Return __Trace_FuncOut("_netcode_TCPConnect", $hSocket)
+
 	EndIf
 
-
-	Return __Trace_FuncOut("_netcode_TCPConnect", $hSocket)
-EndFunc   ;==>_netcode_TCPConnect
+EndFunc
 
 
-; ~ todo add PacketENDStrings to verify the packet. The incomplete packet buffer should be limited to nothing more then like 4096 bytes.
-; marked for recoding
 ; #FUNCTION# ====================================================================================================================
 ; Name ..........: _netcode_AuthToNetcodeServer
-; Description ...: Does the Staging
-; Syntax ........: _netcode_AuthToNetcodeServer(Const $hSocket[, $sUsername = ""[, $sPassword = ""[, $arKeyPairs = False]]])
-; Parameters ....: $hSocket             - [const] The socket.
-;                  $sUsername           - [optional] Username if Server requires that
-;                  $sPassword           - [optional] Plain text Password if Server requires that
-;                  $arKeyPairs          - [optional] Ignore this parameter
-; Return values .: True					= If the Staging was a success
-;				   False				= If not
-; Errors and Extended (Err - Ext)
-; ...............: 1 - 0				= Disconnected in the Auth Stage
-; ...............: 2 - 0				= Server didnt auth as expected
-; ...............: 3 - 0				= Disconnected in the Handshake Stage
-; ...............: 4 - 0				= Could not Decrypt RSA data
-; ...............: 5 - 0				= Disconnected in the User Stage
-; ...............: 5 - 1				= Wrong Credentials
-; ...............: 5 - 2				= Account is set OnHold
-; ...............: 5 - 3				= Account is banned
-; ...............: 5 - 4				= Unknown Error
-; ...............: 6 - 0				= Disconnected in the PreSyn Stage
-; ...............: 7 - 0				= Could not Decrypt PreSyn data
+; Description ...: Triggers the Staging process for the connect client.
+; Syntax ........: _netcode_AuthToNetcodeServer(Const $hSocket[, $sUsername = ""[, $sPassword = ""[, $bNonBlocking = False[,
+;                  $nTimeout = 2000]]]])
+; Parameters ....: $hSocket             - [const] The socket
+;                  $sUsername           - [optional] If the Server is Usermanaged then enter the Username here
+;                  $sPassword           - [optional] If the Server is Usermanaged then enter the Password here
+;                  $bNonBlocking        - [optional] Set to True if you want the Staging to be non Blocking
+;                  $nTimeout            - [optional] Time in ms
+; Return values .: True					= If the staging was a success (blocking only)
+;				 : False				= If the staging failes (blocking only)
+;				 : Null					= Always on a non blocking call
+; Errors ........: 1					= Socket is unknown to _netcode
+;				 : 2					= Socket is pending. Auth not possible.
 ; Modified ......:
-; Remarks .......: Duo to the missing Disconnect Quo, most often this function wont return the right extended information for the User Stage.
-; ...............: So you will most likely end up with @extended 4 and cant tell if the credentials where wrong or if the user is banned etc.
+; Remarks .......: There is only a single use case for this function. This is for when you call _netcode_TCPConnect() blocking,
+;				 : then add events and then call this one. Why would you? Because the "connection" or "diconnected" event for example
+;				 : would be the default events and your socket specific wouldnt be called, because they arent set yet.
+;				 : So you could connect, add those events and then AuthToNetcode to make sure that your events are called.
 ; Example .......: No
 ; ===============================================================================================================================
-Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = "", $arKeyPairs = False)
-	__Trace_FuncIn("_netcode_AuthToNetcodeServer", $hSocket, $sUsername, "$sPassword", "$arKeyPairs")
+Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = "", $bNonBlocking = False, $nTimeout = 2000)
 
-	; authing to the server
-	__netcode_TCPSend($hSocket, StringToBinary($__net_sAuthNetcodeString, 4))
+	; if the socket is unknown then return false
+	If __netcode_CheckSocket($hSocket) = 0 Then Return SetError(1, 0, False) ; socket is unknown to netcode
+	If __netcode_CheckSocket($hSocket) = 3 Then Return SetError(2, 0, False)
 
-	; wait for answer
-	Local $sPackage = __netcode_PreRecvPackages($hSocket)
-	If Not $sPackage Then
-		__Trace_Error(1, 0, "Disconnected")
-		Return SetError(1, 0, __Trace_FuncOut("_netcode_AuthToNetcodeServer", False))
+	; if the call is set to be non blocking
+	if $bNonBlocking Then
+
+		; then just trigger the first stage
+		__netcode_ManageAuth($hSocket, Null)
+
+		; and return Null
+		Return Null
+
+	Else ; if the call is set to be blocking
+
+		; trigger first stage
+		__netcode_ManageAuth($hSocket, Null)
+
+		; wait until we reached stage 10
+		While __netcode_CheckSocket($hSocket) <> 0
+
+			; loop just this socket
+			_netcode_RecvManageExecute($hSocket)
+
+			; exitloop once stage = 10
+			if __netcode_SocketGetManageMode($hSocket) = 10 Then ExitLoop
+		WEnd
+
+		; in case we exited loop because the socket disconnected then return false
+		if __netcode_CheckSocket($hSocket) = 0 Then Return False
+
+		; other call it a success
+		Return True
+
 	EndIf
 
-	; check the answer
-	If $sPackage <> $__net_sAuthNetcodeConfirmationString Then
-
-		__Trace_Error(2, 0, "Server didnt auth as expected", "", $sPackage)
-		Return SetError(2, 0, __Trace_FuncOut("_netcode_AuthToNetcodeServer", False)) ; server didnt auth as expected
-
-	EndIf
-
-	; first stage done
-	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(1, ""))
-
-	; create RSA key pair if none given through $arKeyPairs
-	If Not IsBinary($arKeyPairs) Then $arKeyPairs = __netcode_CryptGenerateRSAKeyPair(2048)
-	__netcode_SocketSetMyRSA($hSocket, $arKeyPairs[0], $arKeyPairs[1])
-
-	; send public RSA key
-	__netcode_TCPSend($hSocket, $arKeyPairs[1])
-
-	; wait for answer
-	$sPackage = __netcode_PreRecvPackages($hSocket)
-	If Not $sPackage Then
-		__Trace_Error(3, 0, "Disconnected")
-		Return SetError(3, 0, __Trace_FuncOut("_netcode_AuthToNetcodeServer", False))
-	EndIf
-
-	; try decrypting data with private RSA key
-	Local $sDecData = __netcode_RSADecrypt(Binary($sPackage), $arKeyPairs[0])
-
-	; if we couldnt decrypt
-	If $sDecData == 0 Then
-;~ 		__netcode_PreDisconnect($hSocket, False, True)
-		__Trace_Error(4, 0, "Could not decrypt data")
-		Return SetError(4, 0, __Trace_FuncOut("_netcode_AuthToNetcodeServer", False)) ; couldnt decrypt data
-	EndIf
-
-	; save decrypted data as the AES key to the socket
-	Local $hPassword = __netcode_AESDeriveKey(BinaryToString($sDecData), "packetencryption")
-	__netcode_SocketSetPacketEncryptionPassword($hSocket, $hPassword)
-
-	; second stage done
-	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(2, BinaryToString($sDecData)))
-
-	If $sUsername <> '' Then
-		; try login in by sending our user and password
-		__netcode_TCPSend($hSocket, StringToBinary(__netcode_AESEncrypt(StringToBinary("login:" & $sUsername & ':' & _netcode_SHA256($sPassword)), $hPassword), 4))
-
-		; wait for answer
-		$sPackage = __netcode_PreRecvPackages($hSocket)
-		If Not $sPackage Then
-			__Trace_Error(5, 0, "Disconnected")
-			Return SetError(5, 0, __Trace_FuncOut("_netcode_AuthToNetcodeServer", False))
-		EndIf
-
-		; decrypt answer
-		$sDecData = BinaryToString(__netcode_AESDecrypt(Binary(BinaryToString($sPackage)), $hPassword))
-
-		; switch answer
-		Switch $sDecData
-
-			Case "Success"
-				; ~ todo
-
-			Case "Wrong"
-				; ~ todo
-				__Trace_Error(5, 1, "", "User is Unknown or Wrong Credentials")
-				Return SetError(5, 1, __Trace_FuncOut("_netcode_AuthToNetcodeServer", False))
-
-			Case "OnHold" ; the account is set to OnHold
-				; ~ todo
-				__Trace_Error(5, 2, "", "Account is OnHold")
-				Return SetError(5, 2, __Trace_FuncOut("_netcode_AuthToNetcodeServer", False))
-
-			Case "Banned"
-				; ~ todo
-				__Trace_Error(5, 3, "", "Account is Banned")
-				Return SetError(5, 3, __Trace_FuncOut("_netcode_AuthToNetcodeServer", False))
-
-			Case Else
-				; ~ todo
-				__Trace_Error(5, 4, "", "Unknown Error")
-				Return SetError(5, 4, __Trace_FuncOut("_netcode_AuthToNetcodeServer", False))
-
-		EndSwitch
-
-		__netcode_SocketSetUser($hSocket, $sUsername)
-
-		; third step done
-		__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(3, $sUsername))
-	EndIf
-
-	; Request PreSyn data
-	__netcode_TCPSend($hSocket, __netcode_AESEncrypt("presyn", $hPassword))
-
-	; wait for answer
-	$sPackage = __netcode_PreRecvPackages($hSocket)
-	If Not $sPackage Then
-		__Trace_Error(6, 0, "Disconnected")
-		Return SetError(6, 0, __Trace_FuncOut("_netcode_AuthToNetcodeServer", False))
-	EndIf
-
-	; decrypt answer
-	$sDecData = BinaryToString(__netcode_AESDecrypt(Binary(BinaryToString($sPackage)), $hPassword))
-	Local $arPreSyn = __netcode_CheckParamAndUnserialize($sDecData)
-	If Not IsArray($arPreSyn) Then
-		__Trace_Error(7, 0, "Could not decrypt Answer")
-		Return SetError(7, 0, __Trace_FuncOut("_netcode_AuthToNetcodeServer", False))
-	EndIf
-
-	; set server rules
-	For $i = 0 To UBound($arPreSyn) - 1
-		__netcode_PreSyn($hSocket, $arPreSyn[$i][0], $arPreSyn[$i][1])
-	Next
-
-	; fourth step done
-	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(4, $arPreSyn))
-
-	; syn phase
-	; ~ todo
-;~ 	__netcode_SocketSetManageMode($hSocket, 'syn')
-
-	; ready temp stage
-;~ 	__netcode_TCPSend($hSocket, __netcode_AESEncrypt("ready", $hPassword))
-	_netcode_TCPSend($hSocket, 'netcode_internal', 'null')
-	__netcode_SendPacketQuo()
-
-	__netcode_SocketSetManageMode($hSocket, 'netcode')
-	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(10, ""))
-	Return __Trace_FuncOut("_netcode_AuthToNetcodeServer", True)
-EndFunc   ;==>_netcode_AuthToNetcodeServer
-
-; internal
-Func __netcode_PreSyn(Const $hSocket, $sPreSyn, $sData)
-	__Trace_FuncIn("__netcode_PreSyn", $hSocket, $sPreSyn, $sData)
-	Switch $sPreSyn
-
-		Case "MaxRecvBufferSize"
-			$__net_nMaxRecvBufferSize = Number($sData)
+EndFunc
 
 
-		Case "DefaultRecvLen"
-			$__net_nDefaultRecvLen = Number($sData)
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_GetCurrentStageName
+; Description ...: Returns the Stagename the given socket is currently running in
+; Syntax ........: _netcode_GetCurrentStageName($hSocket)
+; Parameters ....: $hSocket             - The socket
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
+Func _netcode_GetCurrentStageName($hSocket)
+	Local $nCode = __netcode_SocketGetManageMode($hSocket)
 
+	Switch $nCode
 
-		Case "Encryption"
-			__netcode_SocketSetPacketEncryption($hSocket, __netcode_SetVarType($sData, "Bool"))
+		Case 0
+			Return 'auth'
 
+		Case 1
+			Return 'presyn'
 
-		Case "Seed"
-			__netcode_SeedingClientStrings($hSocket, Number($sData))
+		Case 2
+			Return 'handshake'
 
-		Case Else
-			; unknown rule
-			; ~ todo
+		Case 3
+			Return 'syn'
 
+		Case 4
+			Return 'user'
+
+;~ 		Case 5
+;~ 			Return 'mfa'
+
+		Case 9
+			Return 'ready'
+
+		Case 10
+			Return 'netcode'
 
 	EndSwitch
-	__Trace_FuncOut("__netcode_PreSyn")
-EndFunc   ;==>__netcode_PreSyn
+EndFunc
+
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_StageGetError
+; Description ...: Returns the Error code that the given stage has set
+; Syntax ........: _netcode_StageGetError($hSocket[, $sStageName = ""])
+; Parameters ....: $hSocket             - The socket
+;                  $sStageName          - [optional] Stagename
+; Return values .: A Error code			= If there was an error
+;				 : 0					= If there was no error
+;				 : -1					= If the stage hasnt been executed
+; Modified ......:
+; Remarks .......: If you call this function in your disonnect function to catch the error but you get -1 returned then
+;				 : that means that the given stage hasnt been executed.
+;				 : If you dont give a stagename then _netcode will read the current.
+;				 : You only need to call this function if you are looking to treat a specific error differently in your script
+;				 : or if you are debugging.
+;				 : Otherwise _netcode_StageGetErrorDescription() should work fine for you.
+;				 :
+; Error codes ...: accept means the error appeared on the accept client. connect = on the connect client.
+; auth ..........: (accept)		1		= The pre shared key could not be verified
+; presyn ........: (connect)	1		= The presyn data could not be decrypted
+;				 : (connect)	2		= %reserved%
+; handshake .....: (accept)		1		= The session key could not be decrypted
+;				 : (connect)	2		= The public key could not be decrypted
+;				 : (connect)	3		= The session key could not be encrypted
+; Syn ...........: (connect)	1		= The Syn data could not be decrypted
+;				 : (connect)	2		= %reserved%
+; User ..........: (accept)		1		= User Stage error. See _netcode_StageGetExtended()
+; User ..........: (connect)	2		= User Stage error. See _netcode_StageGetExtended()
+; ===============================================================================================================================
+Func _netcode_StageGetError($hSocket, $sStageName = "")
+	if $sStageName = "" Then $sStageName = _netcode_GetCurrentStageName($hSocket)
+
+	Local $arData = _storageS_Read($hSocket, '_netcode_StageErrAndExt_' & $sStageName)
+	if Not IsArray($arData) Then Return -1 ; stage hasnt run, could indicate that a disconnect happened before
+
+	Return $arData[0]
+EndFunc
+
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_StageGetExtended
+; Description ...: Returns the Extended code that the given stage has set
+; Syntax ........: _netcode_StageGetExtended($hSocket[, $sStageName = ""])
+; Parameters ....: $hSocket             - a handle value.
+;                  $sStageName          - [optional] a string value. Default is "".
+; Return values .: A Extended code		= If there was one set
+;				 : 0					= If there was none
+;				 : -1					= If the stage hasnt been executed
+; Modified ......:
+; Remarks .......: If you call this function in your disonnect function to catch the extended but you get -1 returned then
+;				 : that means that the given stage hasnt been executed.
+;				 : If you dont give a stagename then _netcode will read the current.
+;				 : You only need to call this function if you are looking to treat a specific extended differently in your script
+;				 : or if you are debugging.
+;				 : Otherwise _netcode_StageGetExtendedDescription() should work fine for you.
+;				 :
+; Extended Codes : accept means the error appeared on the accept client. connect = on the connect client.
+; presyn ........: (connect)	1		= %reserved%
+; syn ...........: (connect)	1		= %reserved%
+; user ..........: (accept)		1		= Could not decrypt user login details
+; 				 : (accept)		2		= Username is not present in the user db
+; 				 : (accept)		3		= Wrong Password
+; 				 : (accept)		4		= Account is set OnHold
+; 				 : (accept)		5		= Account is Banned
+; 				 : (accept)		6		= Account is Blocked
+;				 : (connect)	1		= Server requires User login, but client has none set to it _netcode_TCPConnect(ip, port, False, xxx, xxx)
+;				 : (connect)	2		= Could not decrypt server answer
+;				 : (connect)	3		= Unknown user or wrong password
+;				 : (connect)	4		= Account is set OnHold
+;				 : (connect)	5		= Account is Banned
+;				 : (connect)	6		= Unknown Error
+; ===============================================================================================================================
+Func _netcode_StageGetExtended($hSocket, $sStageName = "")
+	if $sStageName = "" Then $sStageName = _netcode_GetCurrentStageName($hSocket)
+
+	Local $arData = _storageS_Read($hSocket, '_netcode_StageErrAndExt_' & $sStageName)
+	if Not IsArray($arData) Then Return -1 ; stage hasnt run, could indicate that a disconnect happened before
+
+	Return $arData[1]
+EndFunc
+
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_StageGetErrorDescription
+; Description ...:
+; Syntax ........: _netcode_StageGetErrorDescription($hSocket[, $sStageName = ""[, $nError = 0]])
+; Parameters ....: $hSocket             - a handle value.
+;                  $sStageName          - [optional] a string value. Default is "".
+;                  $nError              - [optional] a general number value. Default is 0.
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
+Func _netcode_StageGetErrorDescription($hSocket, $sStageName = "", $nError = 0)
+	if $sStageName = "" Then $sStageName = _netcode_GetCurrentStageName($hSocket)
+	if $nError = 0 Then $nError = _netcode_StageGetError($hSocket, $sStageName)
+
+	; if no error
+	if $nError <= 0 Then Return ""
+
+	Local $nSocketIs = _netcode_CheckSocket($hSocket)
+	if $nSocketIs == 1 Then Return SetError(1, 0, False)
+	$nSocketIs = @error ; 1 = accept, 2 = connect
+
+	Local $sText = ""
+
+	Switch $nSocketIs
+
+		Case 1 ; accept client
+			$sText = "Error(" & $nError & ") for Accept client @ Stage: " & $sStageName & @TAB
+
+		Case 2 ; connect client
+			$sText = "Error(" & $nError & ") for Connect client @ Stage: " & $sStageName & @TAB
+
+	EndSwitch
+
+	Switch $sStageName ; switch for the stage
+
+		Case 'auth' ; auth stage
+
+			Switch $nSocketIs ; switch for the socket type
+
+				Case 1 ; its a accept client
+
+					Switch $nError ; switch the error
+
+						Case 1 ; its error 1
+							$sText &= "Pre shared key could not be verified"
+
+					EndSwitch
+
+
+				Case 2 ; its a connect client
+
+					; none
+
+			EndSwitch
+
+
+		Case 'presyn'
+
+			Switch $nSocketIs
+
+				Case 1
+
+					; none
+
+				Case 2
+
+					Switch $nError
+
+						Case 1
+							$sText &= "Could not decrypt Presyn data"
+
+;~ 						Case 2
+;~ 							$sText &= "reserved"
+
+					EndSwitch
+
+			EndSwitch
+
+
+		Case 'handshake'
+
+			Switch $nSocketIs
+
+				Case 1
+
+					Switch $nError
+
+						Case 1
+							$sText &= "The session key could not be decrypted"
+
+					EndSwitch
+
+
+				Case 2
+
+					Switch $nError
+
+						Case 1
+							$sText &= "The public key could not be decrypted"
+
+						Case 2
+							$sText &= "The session key could not be encrypted"
+
+					EndSwitch
+
+			EndSwitch
+
+		Case 'syn'
+
+			Switch $nSocketIs
+
+				Case 1
+
+					; none
+
+				Case 2
+
+					Switch $nError
+
+						Case 1
+							$sText &= "The syn data could not be decrypted"
+
+;~ 						Case 2
+;~ 							$sText &= "reserved"
+
+					EndSwitch
+
+			EndSwitch
+
+		Case 'user'
+
+			Switch $nSocketIs
+
+				Case 1
+
+					Switch $nError
+
+						Case 1
+							$sText &= "User stage error"
+
+					EndSwitch
+
+
+				Case 2
+
+					Switch $nError
+
+						Case 1
+							$sText &= "User stage error"
+
+					EndSwitch
+
+			EndSwitch
+	EndSwitch
+
+	Return $sText
+EndFunc
+
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_StageGetExtendedDescription
+; Description ...:
+; Syntax ........: _netcode_StageGetExtendedDescription($hSocket[, $sStageName = ""[, $nExtended = 0]])
+; Parameters ....: $hSocket             - a handle value.
+;                  $sStageName          - [optional] a string value. Default is "".
+;                  $nExtended           - [optional] a general number value. Default is 0.
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
+Func _netcode_StageGetExtendedDescription($hSocket, $sStageName = "", $nExtended = 0)
+	if $sStageName = "" Then $sStageName = _netcode_GetCurrentStageName($hSocket)
+	if $nExtended = 0 Then $nExtended = _netcode_StageGetExtended($hSocket, $sStageName)
+
+	; if no extended
+	if $nExtended <= 0 Then Return ""
+
+	Local $nSocketIs = _netcode_CheckSocket($hSocket)
+	if $nSocketIs == 1 Then Return SetError(1, 0, False)
+	$nSocketIs = @error ; 1 = accept, 2 = connect
+
+	Local $sText = ""
+
+	Switch $nSocketIs
+
+		Case 1 ; accept client
+			$sText = "Extended(" & $nExtended & ") for Accept client @ Stage: " & $sStageName & @TAB
+
+		Case 2 ; connect client
+			$sText = "Extended(" & $nExtended & ") for Connect client @ Stage: " & $sStageName & @TAB
+
+	EndSwitch
+
+
+	Switch $sStageName
+
+;~ 		Case 'presyn'
+			; reserved
+
+
+;~ 		Case 'syn'
+			; reserved
+
+		Case 'user'
+
+			Switch $nSocketIs
+
+				Case 1
+
+					Switch $nExtended
+
+						Case 1
+							$sText &= "Could not decrypt user login details"
+
+						Case 2
+							$sText &= "Username is not present in the user db"
+
+						Case 3
+							$sText &= "Wrong password"
+
+						Case 4
+							$sText &= "Account is set OnHold"
+
+						Case 5
+							$sText &= "Account is Banned"
+
+						Case 6
+							$sText &= "Account Blocked"
+
+					EndSwitch
+
+				Case 2
+
+					Switch $nExtended
+
+						Case 1
+							$sText &= "Server requires login, but client knows no login details"
+
+						Case 2
+							$sText &= "Could not decrypt server answer"
+
+						Case 3
+							$sText &= "Unknown User or Wrong password"
+
+						Case 4
+							$sText &= "Account is set OnHold"
+
+						Case 5
+							$sText &= "Account is Banned"
+
+						Case 6
+							$sText &= "Unknown Error"
+
+					EndSwitch
+
+
+			EndSwitch
+	EndSwitch
+
+	Return $sText
+EndFunc
+
+
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_StageGetExtraInformation
+; Description ...: Returns additional Data.
+; Syntax ........: _netcode_StageGetExtraInformation($hSocket[, $sStageName = ""])
+; Parameters ....: $hSocket             - a handle value.
+;                  $sStageName          - [optional] a string value. Default is "".
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
+Func _netcode_StageGetExtraInformation($hSocket, $sStageName = "")
+	if $sStageName = "" Then $sStageName = _netcode_GetCurrentStageName($hSocket)
+
+	Local $sData = _storageS_Read($hSocket, '_netcode_StageExtraInfo_' & $sStageName)
+	if $sData == False Then Return ""
+
+	Return $sData
+EndFunc
 
 
 ; marked for recoding
@@ -971,6 +1286,7 @@ EndFunc   ;==>__netcode_PreSyn
 ; Errors ........: 10					= Illegal event used
 ;				   11					= The given Data is to large to be ever send
 ;				   12					= Tracer Warning only: The given Data is not of Type String.
+;				   13					= The socket is not in the required 'netcode' stage.
 ;                  1					= Flood prevention error. Will be returned if the data couldnt be quod because the buffer is too full
 ; Extended ......: 1					= Socket is unknown or the Socket got disconnected
 ; Modified ......:
@@ -998,6 +1314,12 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 	If Not __netcode_CheckSocket($hSocket) Then
 		__Trace_Error(0, 1, "Socket is unknown")
 		Return SetError(0, 1, __Trace_FuncOut("_netcode_TCPSend", False))
+	EndIf
+
+	; check the managemode the socket is in
+	If __netcode_SocketGetManageMode($hSocket) <> 10 Then
+		__Trace_Error(13, 0, "Socket is not in the netcode stage")
+		Return SetError(13, 0, __Trace_FuncOut("_netcode_TCPSend", False))
 	EndIf
 
 	; check if the given event is illegal
@@ -1182,15 +1504,29 @@ Func _netcode_SocketGetSendBytesPerSecond(Const $hSocket, $nMode = 0)
 		Case 1 ; parent
 			Local $arClients = __netcode_ParentGetClients($hSocket)
 			For $i = 0 To UBound($arClients) - 1
-				$nBytesPerSecond += __netcode_SocketGetSendBytesPerSecond($arClients[$i], $nMode)
+				$nBytesPerSecond += __netcode_SocketGetSendBytesPerSecond($arClients[$i])
 			Next
 
 		Case 2 ; client
-			$nBytesPerSecond = __netcode_SocketGetSendBytesPerSecond($hSocket, $nMode)
+			$nBytesPerSecond = __netcode_SocketGetSendBytesPerSecond($hSocket)
 	EndSwitch
 
 	__Trace_FuncOut("_netcode_SocketGetSendBytesPerSecond")
-	Return $nBytesPerSecond
+
+	Switch $nMode
+		Case 0 ; bytes
+			Return $nBytesPerSecond
+
+		Case 1 ; kbytes
+			Return Round($nBytesPerSecond / 1024, 2)
+
+		Case 2 ; mbytes
+			Return Round($nBytesPerSecond / 1048576, 2)
+
+;~ 		Case 3 ; gbytes
+			; do we need that?
+
+	EndSwitch
 EndFunc
 
 
@@ -1213,15 +1549,29 @@ Func _netcode_SocketGetRecvBytesPerSecond(Const $hSocket, $nMode = 0)
 		Case 1 ; parent
 			Local $arClients = __netcode_ParentGetClients($hSocket)
 			For $i = 0 To UBound($arClients) - 1
-				$nBytesPerSecond += __netcode_SocketGetRecvBytesPerSecond($arClients[$i], $nMode)
+				$nBytesPerSecond += __netcode_SocketGetRecvBytesPerSecond($arClients[$i])
 			Next
 
 		Case 2 ; client
-			$nBytesPerSecond = __netcode_SocketGetRecvBytesPerSecond($hSocket, $nMode)
+			$nBytesPerSecond = __netcode_SocketGetRecvBytesPerSecond($hSocket)
 	EndSwitch
 
 	__Trace_FuncOut("_netcode_SocketGetRecvBytesPerSecond")
-	Return $nBytesPerSecond
+
+	Switch $nMode
+		Case 0 ; bytes
+			Return $nBytesPerSecond
+
+		Case 1 ; kbytes
+			Return Round($nBytesPerSecond / 1024, 2)
+
+		Case 2 ; mbytes
+			Return Round($nBytesPerSecond / 1048576, 2)
+
+;~ 		Case 3 ; gbytes
+			; do we need that?
+
+	EndSwitch
 EndFunc
 
 
@@ -2330,6 +2680,7 @@ EndFunc   ;==>_netcode_DisconnectClientsByIP
 ; Return values .: 0					= Unknown socket (the socket is unknown to _netcode)
 ; 				 : 1					= This socket is a parent
 ; 				 : 2					= This socket is a client
+;				 : 3					= This socket is a pending connect client
 ; Extended ......: 1					= The client socket is a Accept client
 ; 				 : 2					= The client socket is a Connect client
 ; Modified ......:
@@ -2352,6 +2703,9 @@ Func _netcode_CheckSocket(Const $hSocket)
 			Else
 				Return SetError(0, 2, 2)
 			EndIf
+
+		Case 3
+			Return SetError(0, 2, 3)
 
 	EndSwitch
 
@@ -2851,6 +3205,15 @@ Func __netcode_ExecutePackets(Const $hSocket)
 	__Trace_FuncOut("__netcode_ExecutePackets")
 EndFunc   ;==>__netcode_ExecutePackets
 
+Func __netcode_SocketSetStageErrorAndExtended(Const $hSocket, $sStageName, $nError = 0 , $nExtended = 0)
+	Local $arData[2] = [$nError,$nExtended]
+	_storageS_Overwrite($hSocket, '_netcode_StageErrAndExt_' & $sStageName, $arData)
+EndFunc
+
+Func __netcode_SocketSetStageExtraInformation(Const $hSocket, $sStageName, $vData)
+	_storageS_Overwrite($hSocket, '_netcode_StageExtraInfo_' & $sStageName, $vData)
+EndFunc
+
 ; staging system
 ; note for me: generally i need a fast packet router, have to see if i can come up with a faster variant
 Func __netcode_ManagePackages(Const $hSocket, $sPackages)
@@ -2861,28 +3224,22 @@ Func __netcode_ManagePackages(Const $hSocket, $sPackages)
 		Case 0 ; 'auth'
 			__netcode_ManageAuth($hSocket, $sPackages)
 
-
-		Case 1 ; 'handshake'
-			__netcode_ManageHandshake($hSocket, $sPackages)
-
-
-		Case 2 ; 'user'
-			__netcode_ManageUser($hSocket, $sPackages)
-
-
-		Case 3 ; '2FA'
-			; ~ todo
-
-
-		Case 4 ; 'presyn'
+		Case 1 ; 'presyn'
 			__netcode_ManagePreSyn($hSocket, $sPackages)
 
+		Case 2 ; 'handshake'
+			__netcode_ManageHandshake($hSocket, $sPackages)
 
-		Case 5 ; 'syn'
+		Case 3 ; 'syn'
+			__netcode_ManageSyn($hSocket, $sPackages)
+
+		Case 4 ; 'user'
+			__netcode_ManageUser($hSocket, $sPackages)
+
+		Case 5 ; 'MFA'
 			; ~ todo
 
-
-		Case 9 ; temp stage
+		Case 9 ; ready stage
 			__netcode_ManageReady($hSocket, $sPackages)
 
 
@@ -2921,20 +3278,20 @@ Func __netcode_SocketSetManageMode(Const $hSocket, $sMode)
 		Case 'auth'
 			$nMode = 0
 
-		Case 'handshake'
+		Case 'presyn'
 			$nMode = 1
 
-		Case 'user'
+		Case 'handshake'
 			$nMode = 2
 
-		Case '2FA'
+		Case 'syn'
 			$nMode = 3
 
-		Case 'presyn'
+		Case 'user'
 			$nMode = 4
 
-		Case 'syn'
-			$nMode = 5
+		Case 'mfa'
+			$nMode = 5 ; not included yet
 
 		Case 'ready' ; temp stage
 			$nMode = 9
@@ -2969,247 +3326,786 @@ Func __netcode_SocketGetManageMode(Const $hSocket)
 	Return __Trace_FuncOut("__netcode_SocketGetManageMode", _storageS_Read($hSocket, '_netcode_SocketManageMode'))
 EndFunc   ;==>__netcode_SocketGetManageMode
 
-Func __netcode_ManageAuth($hSocket, $sPackages)
+; the connect client uses the socket seed as a preshared key and encrypts the string 'netcode' with it.
+; the accept client tries to decrypt the text with its socket seed. if both password matched then the text can be decrypted.
+; and the stage is done.
+; the generall purpose of this stage is it, to make sure that both parties actually use netcode and that both parties use the same
+; pre handshake encryption key. So that all data that is transmitted before the handshake is encrypted.
+Func __netcode_ManageAuth(Const $hSocket, $sPackages)
 	__Trace_FuncIn("__netcode_ManageAuth", "$sPackages")
 
-	If StringInStr($sPackages, $__net_sAuthNetcodeString) <> 0 Then
-		__netcode_SocketSetManageMode($hSocket, 'handshake')
+	Local $nSocketIs = 1
+	Local $hParent = __netcode_ClientGetParent($hSocket)
+	if $hParent == "000" Then $nSocketIs = 2
 
-		; tcpsend a confirmation
-		__netcode_TCPSend($hSocket, StringToBinary($__net_sAuthNetcodeConfirmationString))
+	Switch $nSocketIs
 
-		__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(1, ""))
+		Case 1 ; if accept client
 
-		Return __Trace_FuncOut("__netcode_ManageAuth")
-	EndIf
+			; create pre handshake key from the seed
+			Local $hPassword = __netcode_AESDeriveKey(_storageS_Read($hSocket, '_netcode_SocketSeed'), 'prehandshake')
 
-	Return SetError(__netcode_TCPCloseSocket($hSocket), __netcode_RemoveSocket($hSocket), __Trace_FuncOut("__netcode_ManageAuth", False))
+			; set extra info
+			__netcode_SocketSetStageExtraInformation($hSocket, 'auth', _storageS_Read($hSocket, '_netcode_SocketSeed'))
 
-EndFunc   ;==>__netcode_ManageAuth
+			; check if we can decrypt the package
+			$sPackages = __netcode_AESDecrypt(StringToBinary($sPackages), $hPassword)
 
-Func __netcode_ManageHandshake($hSocket, $sPackages)
-	__Trace_FuncIn("__netcode_ManageHandshake", "$sPackages")
-	$sPackages = StringToBinary($sPackages)
+			; check the string
+			if $sPackages <> "netcode" Then
 
-	; temporary fix
-;~ 	$__net_nInt_TemporarySRandomFix += 1
-;~ 	SRandom($__net_nInt_TemporarySRandomFix)
-;~ 	__netcode_SRandomTemporaryFix()
+				__netcode_SocketSetStageErrorAndExtended($hSocket, 'auth', 1, 0)
 
-	Local $sPW = __netcode_RandomPW(40, 3)
-	Local $sEncryptionKey = __netcode_AESDeriveKey($sPW, "packetencryption")
+				__netcode_TCPCloseSocket($hSocket)
+				__netcode_RemoveSocket($hSocket)
 
-	; encrypt AES Key with the the pub from the client
-	Local $sEncData = __netcode_RSAEncrypt($sPW, $sPackages)
+				__Trace_Error(1, 0, "Pre shared key could not be verified")
+				Return __Trace_FuncOut("__netcode_ManageAuth")
+			EndIf
 
-	If $sEncData == 0 Then
-;~ 		__Trace_Error(
-		Return SetError(__netcode_TCPCloseSocket($hSocket), __netcode_RemoveSocket($hSocket), __Trace_FuncOut("__netcode_ManageHandshake", False))
-	EndIf
-	__netcode_SocketSetOtherRSA($hSocket, $sPackages)
-	__netcode_SocketSetPacketEncryptionPassword($hSocket, $sEncryptionKey)
+			; store pre handshake key
+			__netcode_SocketSetPacketEncryptionPassword($hSocket, $hPassword)
 
-	; send the encrypted key
-	__netcode_TCPSend($hSocket, $sEncData)
+			; call stage to be done
+			__netcode_SocketSetStageErrorAndExtended($hSocket, 'auth', 0, 0)
+			__netcode_ExecuteEvent($hSocket, "connection", 'auth')
 
-	; set if set the USER stage if not enter presyn stage
-	If IsArray(_netcode_SocketGetUserManagement(__netcode_ClientGetParent($hSocket))) Then
-		__netcode_SocketSetManageMode($hSocket, 'user')
-	Else
-		__netcode_SocketSetManageMode($hSocket, 'presyn')
-	EndIf
+			; set next stage
+			__netcode_SocketSetManageMode($hSocket, 'presyn')
 
-	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(2, $sPW))
-	__Trace_FuncOut("__netcode_ManageHandshake")
-EndFunc   ;==>__netcode_ManageHandshake
+			; trigger next stage
+			__netcode_ManagePreSyn($hSocket, Null)
 
-; unfinished
-Func __netcode_ManageUser($hSocket, $sPackages)
-	__Trace_FuncIn("__netcode_ManageUser", "$sPackages")
+			Return __Trace_FuncOut("__netcode_ManageAuth")
+
+
+		Case 2 ; if connect client
+
+			; create pre handshake key from the seed
+			Local $hPassword = __netcode_AESDeriveKey(_storageS_Read($hSocket, '_netcode_SocketSeed'), 'prehandshake')
+
+			; set extra info
+			__netcode_SocketSetStageExtraInformation($hSocket, 'auth', _storageS_Read($hSocket, '_netcode_SocketSeed'))
+
+			; store pre handshake key
+			__netcode_SocketSetPacketEncryptionPassword($hSocket, $hPassword)
+
+			; encrypt auth string
+			Local $sData = __netcode_AESEncrypt("netcode", $hPassword)
+
+			; send encrypted auth string
+			__netcode_TCPSend($hSocket, $sData)
+
+			; call stage to be done
+			__netcode_SocketSetStageErrorAndExtended($hSocket, 'auth', 0, 0)
+			__netcode_ExecuteEvent($hSocket, "connection", 'auth')
+
+			; set next stage
+			__netcode_SocketSetManageMode($hSocket, 'presyn')
+
+			Return __Trace_FuncOut("__netcode_ManageAuth")
+
+
+	EndSwitch
+
+EndFunc
+
+; the accept client creates presyn data. Like which stages have to follow up and which handshake mode to use.
+; the connect client then applies the server settings to itself but also checks them. If it allows the settings and
+; if the stages are available.
+; as of now this stage is useless, since there are no different handshake modes and the stages arent dynamic yet.
+; this stage was just implemented for the upcoming stages overhaul.
+Func __netcode_ManagePreSyn(Const $hSocket, $sPackages)
+	__Trace_FuncIn("__netcode_ManagePreSyn", $hSocket, "$sPackages")
+
+	; get the pre handshake key
 	Local $hPassword = __netcode_SocketGetPacketEncryptionPassword($hSocket)
-	$sPackages = BinaryToString(__netcode_AESDecrypt(Binary(BinaryToString($sPackages)), $hPassword))
 
-	Local $arPackages = StringSplit($sPackages, ':', 1)
-	If $arPackages[0] < 3 Then
-		; disconnect
-		Return SetError(__netcode_TCPCloseSocket($hSocket), __netcode_RemoveSocket($hSocket), __Trace_FuncOut("__netcode_ManageUser", False))
-	ElseIf $arPackages[1] <> 'login' Then
-		; disconnect
-		Return SetError(__netcode_TCPCloseSocket($hSocket), __netcode_RemoveSocket($hSocket), __Trace_FuncOut("__netcode_ManageUser", False))
-	EndIf
-
-	If Not __netcode_ManageUserLogin($hSocket, $arPackages, $hPassword) Then Return __Trace_FuncOut("__netcode_ManageUser")
-
-	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(3, $arPackages[2]))
-	__netcode_SocketSetManageMode($hSocket, 'presyn')
-	__Trace_FuncOut("__netcode_ManageUser")
-EndFunc   ;==>__netcode_ManageUser
-
-#cs
- the array is 2D
-	[0][0] = Username
-	[0][1] = SHA256 Password
-	[0][2] = Status
-	[0][3] = 2FA Public RSA Key (if the Option is set)
-	[0][4] = Alertmode
-	[0][5] = Alert extended
-	[0][6] = if banned - banned till date
-	[0][7] = if banned - banned reason
-	[0][8] = How much Clients can use this User at once
-	[0][9] = How much Clients there are currently using this User
-	[0][10] = Which Sockets currently are bind to this user - Array Serialized with |
-	[0][11] = User Specific Events - Array Serialized with |
-	[0][12] = User Group names (Serialized)
-	[0][13] = Last Login Date
-	[0][14] = The last 10 Login IP's and dates in a array which is serialized
-	[0][15] = #Tags (Serialized)
-	[0][16] = Notes (Serialized)
-	[0][17] = space for custom value
-	[0][18] = space for custom value
-#ce
-Func __netcode_ManageUserLogin($hSocket, $arPacket, $hPassword)
-	__Trace_FuncIn("__netcode_ManageUserLogin", "$arPacket", "$hPassword")
-	Local $hParentSocket = __netcode_ClientGetParent($hSocket)
-	Local $arUserDB = __netcode_GetUserDB($hParentSocket)
-
-	; locate user
-	Local $nIndex = __netcode_FindUser($arUserDB, $arPacket[2])
-	If $nIndex = -1 Then
-		; disconnect
-;~ 		__netcode_PreDisconnect($hSocket, True, True, True)
-		__netcode_TCPSend($hSocket, __netcode_AESEncrypt("Wrong", $hPassword))
-		Return SetError(__netcode_TCPCloseSocket($hSocket), __netcode_RemoveSocket($hSocket), __Trace_FuncOut("__netcode_ManageUserLogin", False))
-	EndIf
-
-	; check credentials
-	If StringLen($arPacket[3]) <> 66 Then
-		if StringLen($arPacket[3]) <= $__net_nMaxPasswordLen Then $arPacket[3] = _netcode_SHA256($arPacket[3])
-		if StringLen($arPacket[3]) <> 66 Then Return SetError(__netcode_TCPCloseSocket($hSocket), __netcode_RemoveSocket($hSocket), __Trace_FuncOut("__netcode_ManageUserLogin", False))
-	EndIf
-
-	If $arUserDB[$nIndex][1] <> $arPacket[3] Then
-		__netcode_TCPSend($hSocket, __netcode_AESEncrypt("Wrong", $hPassword))
-;~ 		__netcode_PreDisconnect($hSocket, True, True, True)
-
-		; if failed set Alert ~ todo
-
-		Return SetError(__netcode_TCPCloseSocket($hSocket), __netcode_RemoveSocket($hSocket), __Trace_FuncOut("__netcode_ManageUserLogin", False))
-	EndIf
-
-	; check for [0][3] if set here
+	Local $nSocketIs = 1
+	Local $hParent = __netcode_ClientGetParent($hSocket)
+	if $hParent == "000" Then $nSocketIs = 2
 
 
-	; check user status
-	If $arUserDB[$nIndex][2] <> "Active" Then
-		If $arUserDB[$nIndex][2] = "Banned" Then
+	Switch $nSocketIs
+
+		Case 1 ; if accept client
+
+			; create presyn option set for the connect client to inherit
+			Local $arPreSyn[0][0]
 
 			; ~ todo
-			; if banned check till and revert the ban if neccessary here.
-			; also send the ban reason.
+			; like the handshake mode and the following stage order
 
-			__netcode_TCPSend($hSocket, __netcode_AESEncrypt("Banned", $hPassword))
-		ElseIf $arUserDB[$nIndex][2] = "OnHold" Then
-			__netcode_TCPSend($hSocket, __netcode_AESEncrypt("OnHold", $hPassword))
-		EndIf
+			; set extra info
+			__netcode_SocketSetStageExtraInformation($hSocket, 'presyn', $arPreSyn)
 
-;~ 		__netcode_PreDisconnect($hSocket, True, True, True)
-		Return SetError(__netcode_TCPCloseSocket($hSocket), __netcode_RemoveSocket($hSocket), __Trace_FuncOut("__netcode_ManageUserLogin", False))
-	EndIf
+			; serialize the array
+			Local $sData = __netcode_CheckParamAndSerialize($arPreSyn)
 
-	; check for [0][8] & [0][9] and if add to [0][9] and [0][10]
+			; encrypt the serialized array
+			$sData = __netcode_AESEncrypt($sData, $hPassword)
 
+			; send the encrypted data
+			__netcode_TCPSend($hSocket, $sData)
 
-	; set [0][13] and [0][14]
+			; call the stage
+			__netcode_SocketSetStageErrorAndExtended($hSocket, 'presyn', 0, 0)
+			__netcode_ExecuteEvent($hSocket, "connection", 'presyn')
 
-
-	; read [0][11] and add the events
-
-
-	; read alerts and extended
+			; set next stage
+			__netcode_SocketSetManageMode($hSocket, 'handshake')
 
 
-	; send sucess and additional data
-;~ 	__netcode_TCPSend($hSocket, __netcode_AESEncrypt("Success", $hPassword))
-	__netcode_TCPSend($hSocket, StringToBinary(__netcode_AESEncrypt("Success", $hPassword), 4))
+			Return __Trace_FuncOut("__netcode_ManagePreSyn")
 
-	; has to save the UID not the username <<<=======================================<<<<<<<
-	__netcode_SocketSetUser($hSocket, $arPacket[2])
-	Return __Trace_FuncOut("__netcode_ManageUserLogin", True)
-EndFunc   ;==>__netcode_ManageUserLogin
 
-Func __netcode_ManagePreSyn($hSocket, $sPackages)
-	__Trace_FuncIn("__netcode_ManagePreSyn", $hSocket, "$sPackages")
+		Case 2 ; if connect client
+
+			; decrypt presyn data
+			$sPackages = __netcode_AESDecrypt(StringToBinary($sPackages), $hPassword)
+
+			; if we couldnt decrypt it
+			if $sPackages == -1 Then
+
+				__netcode_SocketSetStageErrorAndExtended($hSocket, 'presyn', 1, 0)
+
+				__netcode_TCPCloseSocket($hSocket)
+				__netcode_RemoveSocket($hSocket)
+
+				__Trace_Error(1, 0, "Could not decrypt presyn data")
+				Return __Trace_FuncOut("__netcode_ManageAuth")
+			EndIf
+
+			; deserialize presyn data
+			Local $arPreSyn = __netcode_CheckParamAndUnserialize(BinaryToString($sPackages))
+
+			; set extra info
+			__netcode_SocketSetStageExtraInformation($hSocket, 'presyn', $arPreSyn)
+
+			; if there is presyn data
+			Local $nArSize = UBound($arPreSyn)
+			If $nArSize > 0 Then
+
+				; then apply it to ourself
+				For $i = 0 To $nArSize - 1
+					; ~ todo
+					; also check here if the presyn data is allowed and if the required stages are present
+				Next
+
+			EndIf
+
+			; if we could then tell the server about it
+			Local $sData = __netcode_AESEncrypt("1", $hPassword)
+			__netcode_TCPSend($hSocket, $sData)
+
+			; call the stage
+			__netcode_SocketSetStageErrorAndExtended($hSocket, 'presyn', 0, 0)
+			__netcode_ExecuteEvent($hSocket, "connection", 'presyn')
+			; set the next stage
+
+			__netcode_SocketSetManageMode($hSocket, 'handshake')
+
+			Return __Trace_FuncOut("__netcode_ManagePreSyn")
+
+	EndSwitch
+
+EndFunc
+
+; the accept clients here starts the preset handshake mode.
+; as of know only a single mode is present.
+Func __netcode_ManageHandshake(Const $hSocket, $sPackages)
+	__Trace_FuncIn("__netcode_ManageHandshake", "$sPackages")
+
+	; get the pre handshake key
 	Local $hPassword = __netcode_SocketGetPacketEncryptionPassword($hSocket)
-;~ 	$sPackages = __netcode_AESDecrypt(StringToBinary($sPackages), $hPassword)
-	$sPackages = BinaryToString(__netcode_AESDecrypt(Binary(BinaryToString($sPackages)), $hPassword))
+	Local $bReturn = False
 
-;~ 	MsgBox(0, "PreSyn", BinaryToString($sPackages))
+	Local $nSocketIs = 1
+	Local $hParent = __netcode_ClientGetParent($hSocket)
+	if $hParent == "000" Then $nSocketIs = 2
 
-	; seed for this parent
-	; max package size for this parent
-	; default package size for this parent
-	; encryption toggle for this parent
-	; packet validation toggle for this parent
-	; further rules
 
-	Local $arPreSyn[4][2]
-	$arPreSyn[0][0] = "MaxRecvBufferSize"
-	$arPreSyn[0][1] = $__net_nMaxRecvBufferSize
-	$arPreSyn[1][0] = "DefaultRecvLen"
-	$arPreSyn[1][1] = $__net_nDefaultRecvLen
-	$arPreSyn[2][0] = "Encryption"
-	$arPreSyn[2][1] = __netcode_SocketGetPacketEncryption(__netcode_ClientGetParent($hSocket))
-	$arPreSyn[3][0] = "Seed"
-	$arPreSyn[3][1] = Number(__netcode_RandomPW(12, 1))
+	Switch $nSocketIs
 
-	Local $sPreSyn = StringToBinary(__netcode_CheckParamAndSerialize($arPreSyn))
+		Case 1 ; if accept client
 
-;~ 	__netcode_TCPSend($hSocket, __netcode_AESEncrypt($sPreSyn, $hPassword))
-	__netcode_TCPSend($hSocket, StringToBinary(__netcode_AESEncrypt($sPreSyn, $hPassword), 4))
+			; perform the preset handshake mode here
+			; ~ todo
+			; like preshared key
+			; or send the preset public key + cert for TLS
+			; or create a random rsa set
 
-	__netcode_SeedingClientStrings($hSocket, $arPreSyn[3][1])
+			$bReturn = __netcode_ManageHandshake_SubRandomRSA($hSocket, $nSocketIs, $hPassword, $sPackages)
+			if $bReturn == False Then
 
-	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(4, $arPreSyn))
-;~ 	__netcode_SocketSetManageMode($hSocket, 'syn')
+				__netcode_TCPCloseSocket($hSocket)
+				__netcode_RemoveSocket($hSocket)
 
-;~ 	__netcode_ExecuteEvent($hSocket, "connection", 10) ; temp - will move to the syn stage
-	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(9, "")) ; temp - will move to the syn stage
-;~ 	__netcode_SocketSetManageMode($hSocket, 'netcode')
-	__netcode_SocketSetManageMode($hSocket, 'ready')
-	__Trace_FuncOut("__netcode_ManagePreSyn")
-EndFunc   ;==>__netcode_ManagePreSyn
+				__Trace_Error(1, 0, "Handshake failed")
 
-Func __netcode_ManageSyn($hSocket, $sPackages)
-	; ~ todo
-	Return
+			ElseIf $bReturn == True Then
+				; call the stage
+				__netcode_SocketSetStageErrorAndExtended($hSocket, 'handshake', 0, 0)
+				__netcode_ExecuteEvent($hSocket, "connection", 'handshake')
 
-	__netcode_Au3CheckFix($hSocket)
-	__netcode_Au3CheckFix($sPackages)
-EndFunc   ;==>__netcode_ManageSyn
+				; set next stage
+				__netcode_SocketSetManageMode($hSocket, 'syn')
+
+				; trigger the next stage
+				__netcode_ManageSyn($hSocket, Null)
+			EndIf
+
+
+		Case 2 ; if connect client
+
+			; perform the preset handshake mode here
+			; ~ todo
+
+			$bReturn = __netcode_ManageHandshake_SubRandomRSA($hSocket, $nSocketIs, $hPassword, $sPackages)
+			if $bReturn == False Then
+
+				__netcode_TCPCloseSocket($hSocket)
+				__netcode_RemoveSocket($hSocket)
+
+				__Trace_Error(1, 0, "Handshake failed")
+
+			ElseIf $bReturn == True Then
+
+				; call the stage
+				__netcode_SocketSetStageErrorAndExtended($hSocket, 'handshake', 0, 0)
+				__netcode_ExecuteEvent($hSocket, "connection", 'handshake')
+
+				; set next stage
+				__netcode_SocketSetManageMode($hSocket, 'syn')
+			EndIf
+
+
+
+
+	EndSwitch
+
+	__Trace_FuncOut("__netcode_ManageHandshake")
+EndFunc
+
+; the accept client creates a priv and pub RSA key and sends the pub to the connect client.
+; the connect client creates a random session key, makes it the new packet encryption key, encrypts it with the pub rsa key and sends it back.
+; the accept client then decrypts it and makes the session key the new packet encryption key.
+; not man in the middle proof.
+Func __netcode_ManageHandshake_SubRandomRSA(Const $hSocket, $nSocketIs, $hPassword, $vData = "")
+	__Trace_FuncIn("__netcode_ManageHandshake_SubRandomRSA", $hSocket, $nSocketIs, "$hPassword", "$vData")
+
+	Local $nSubStage = _storageS_Read($hSocket, '_netcode_handshake_SubRandomRSAStage')
+	if $nSubStage == False Then $nSubStage = 0
+
+	Switch $nSocketIs
+
+		Case 1 ; if accept client
+
+			Switch $nSubStage
+
+				Case 0 ; create rsa keys
+
+					; create rsa keys
+					Local $arKeyPairs = __netcode_CryptGenerateRSAKeyPair(2048) ; 0 private | 1 public
+
+					; store my rsa keys
+					__netcode_SocketSetMyRSA($hSocket, $arKeyPairs[0], $arKeyPairs[1])
+
+					; encrypt the public key with the prehandshake key
+					Local $sData = __netcode_AESEncrypt($arKeyPairs[1], $hPassword)
+
+					; send it to the connect client
+					__netcode_TCPSend($hSocket, $sData)
+
+					; set next sub stage
+					_storageS_Overwrite($hSocket, '_netcode_handshake_SubRandomRSAStage', 1)
+
+					; return Null
+					Return __Trace_FuncOut("__netcode_ManageHandshake_SubRandomRSA", Null)
+
+				Case 1 ; decrypt rsa response from connect client to get the new packet encryption pw
+
+					; get our priv key
+					Local $sPrivateKey = __netcode_SocketGetMyRSA($hSocket)
+
+					; decrypt the session key with our priv key
+					$vData = __netcode_RSADecrypt(StringToBinary($vData), $sPrivateKey)
+
+					; if we cant decrypt it then return False
+					if $vData == "" Then
+						__netcode_SocketSetStageErrorAndExtended($hSocket, 'handshake', 1, 0)
+						Return __Trace_FuncOut("__netcode_ManageHandshake_SubRandomRSA", False)
+					EndIf
+
+					; set extra info
+					__netcode_SocketSetStageExtraInformation($hSocket, 'handshake', BinaryToString($vData))
+
+					; destroy pre handshake key
+					; ~ todo
+
+					; derive the new key
+					$hPassword = __netcode_AESDeriveKey(BinaryToString($vData), 'packetencryption')
+
+					; store it
+					__netcode_SocketSetPacketEncryptionPassword($hSocket, $hPassword)
+
+					; return true
+					Return __Trace_FuncOut("__netcode_ManageHandshake_SubRandomRSA", True)
+
+			EndSwitch
+
+
+		Case 2 ; if connect client
+
+			; decrypt public rsa key from the server
+			Local $sPublicKey = __netcode_AESDecrypt(StringToBinary($vData), $hPassword)
+
+			; if we could not decrypt it then return false
+			if $sPublicKey == -1 Then
+				__netcode_SocketSetStageErrorAndExtended($hSocket, 'handshake', 2, 0)
+				Return __Trace_FuncOut("__netcode_ManageHandshake_SubRandomRSA", False)
+			EndIf
+
+			; store the servers public key
+			__netcode_SocketSetOtherRSA($hSocket, $sPublicKey)
+
+			; create a random session pw
+			Local $sPassword = __netcode_RandomPW(40, 4)
+
+			; set extra info
+			__netcode_SocketSetStageExtraInformation($hSocket, 'handshake', $sPassword)
+
+			; destroy the pre handshake key
+			; ~ todo
+
+			; make it our new packet encryption key
+			$hPassword = __netcode_AESDeriveKey($sPassword, 'packetencryption')
+			__netcode_SocketSetPacketEncryptionPassword($hSocket, $hPassword)
+
+			; encrypt the password with the public key
+			Local $sData = __netcode_RSAEncrypt($sPassword, $sPublicKey)
+
+			; if we could not encrypt the session key then return False
+			if $sData == "" Then
+				__netcode_SocketSetStageErrorAndExtended($hSocket, 'handshake', 3, 0)
+				Return __Trace_FuncOut("__netcode_ManageHandshake_SubRandomRSA", False)
+			EndIf
+
+			; send the encrypted session key to the server
+			__netcode_TCPSend($hSocket, $sData)
+
+			; return True
+			Return __Trace_FuncOut("__netcode_ManageHandshake_SubRandomRSA", True)
+
+
+	EndSwitch
+
+EndFunc
+
+; the accept client reads its settings, like the maximum recv buffer size, the session seed etc. and sends it to the connect client.
+; the connect client inherits these server options but also verifies them.
+; as of now there isnt much to syn. _netcode just doesnt feature much toggleable options yet.
+Func __netcode_ManageSyn(Const $hSocket, $sPackages)
+	__Trace_FuncIn("__netcode_ManageSyn")
+
+	; get the pre handshake key
+	Local $hPassword = __netcode_SocketGetPacketEncryptionPassword($hSocket)
+
+	Local $nSocketIs = 1
+	Local $hParent = __netcode_ClientGetParent($hSocket)
+	if $hParent == "000" Then $nSocketIs = 2
+
+	Switch $nSocketIs
+
+		Case 1 ; accept client
+
+			; create syn data
+			Local $bUserStage = "False"
+			If IsArray(_netcode_SocketGetUserManagement(__netcode_ClientGetParent($hSocket))) Then $bUserStage = "True"
+			Local $nSessionSeed = Number(__netcode_RandomPW(12, 1))
+
+			Local $arSynData[5][2]
+			$arSynData[0][0] = "MaxRecvBufferSize"
+			$arSynData[0][1] = _storageS_Read($hSocket, '_netcode_MaxRecvBufferSize')
+			$arSynData[1][0] = "DefaultRecvLen"
+			$arSynData[1][1] = _storageS_Read($hSocket, '_netcode_DefaultRecvLen')
+			$arSynData[2][0] = "Encryption"
+			$arSynData[2][1] = __netcode_SocketGetPacketEncryption(__netcode_ClientGetParent($hSocket))
+			$arSynData[3][0] = "Seed"
+			$arSynData[3][1] = $nSessionSeed
+			$arSynData[4][0] = "UserStage"
+			$arSynData[4][1] = $bUserStage
+
+			; set extra info
+			__netcode_SocketSetStageExtraInformation($hSocket, 'syn', $arSynData)
+
+			; make the session seed also our own
+			__netcode_SeedingClientStrings($hSocket, $nSessionSeed)
+
+			; serialize the syn data
+			Local $sData = __netcode_CheckParamAndSerialize($arSynData)
+
+			; encrypt syn data
+			$sData = __netcode_AESEncrypt($sData, $hPassword)
+
+			; send the encrypted syn data
+			__netcode_TCPSend($hSocket, $sData)
+
+			; call the stage
+			__netcode_SocketSetStageErrorAndExtended($hSocket, 'syn', 0, 0)
+			__netcode_ExecuteEvent($hSocket, "connection", 'syn')
+
+			; set next stage
+			If $bUserStage == "True" Then
+				__netcode_SocketSetManageMode($hSocket, 'user')
+			Else
+				__netcode_SocketSetManageMode($hSocket, 'ready')
+			EndIf
+
+			Return __Trace_FuncOut("__netcode_ManageSyn")
+
+		Case 2 ; connect client
+
+			; decrypt the syn data
+			$sPackages = __netcode_AESDecrypt(StringToBinary($sPackages), $hPassword)
+
+			; if we couldnt decrypt it
+			if $sPackages == -1 Then
+				__netcode_SocketSetStageErrorAndExtended($hSocket, 'syn', 1, 0)
+
+				__netcode_TCPCloseSocket($hSocket)
+				__netcode_RemoveSocket($hSocket)
+
+				__Trace_Error(1, 0, "Could not decrypt data for the Syn stage")
+				Return __Trace_FuncOut("__netcode_ManageSyn")
+			EndIf
+
+			; deserialize syn data
+			Local $arSynData = __netcode_CheckParamAndUnserialize(BinaryToString($sPackages))
+
+			; set extra info
+			__netcode_SocketSetStageExtraInformation($hSocket, 'syn', $arSynData)
+
+			; check and inherit settings
+			$bUserStage = False
+
+			Local $nArSize = UBound($arSynData)
+			if $nArSize > 0 Then
+
+				For $i = 0 To $nArSize - 1
+
+					if $arSynData[$i][0] = "UserStage" Then
+						$bUserStage = __netcode_SetVarType($arSynData[$i][1], "Bool")
+						ContinueLoop
+					EndIf
+
+					__netcode_ManageSyn_Inherit($hSocket, $arSynData[$i][0], $arSynData[$i][1])
+
+				Next
+
+			EndIf
+
+			; call the stage
+			__netcode_SocketSetStageErrorAndExtended($hSocket, 'syn', 0, 0)
+			__netcode_ExecuteEvent($hSocket, "connection", 'syn')
+
+			; set next stage
+			if $bUserStage Then
+				__netcode_SocketSetManageMode($hSocket, 'user')
+
+				; trigger user stage
+				__netcode_ManageUser($hSocket, Null)
+			Else
+				__netcode_SocketSetManageMode($hSocket, 'netcode')
+
+				; send a void packet, so that the server gets out of the ready stage
+				_netcode_TCPSend($hSocket, 'netcode_internal', "0")
+
+				; call the finish netcode stage
+				__netcode_ExecuteEvent($hSocket, "connection", 'netcode')
+			EndIf
+
+			Return __Trace_FuncOut("__netcode_ManageSyn")
+	EndSwitch
+
+EndFunc
+
+Func __netcode_ManageSyn_Inherit(Const $hSocket, $sPreSyn, $sData)
+	__Trace_FuncIn("__netcode_ManageSyn_Inherit", $hSocket, $sPreSyn, $sData)
+	Switch $sPreSyn
+
+		Case "MaxRecvBufferSize"
+			$__net_nMaxRecvBufferSize = Number($sData)
+
+
+		Case "DefaultRecvLen"
+			$__net_nDefaultRecvLen = Number($sData)
+
+
+		Case "Encryption"
+			__netcode_SocketSetPacketEncryption($hSocket, __netcode_SetVarType($sData, "Bool"))
+
+
+		Case "Seed"
+			__netcode_SeedingClientStrings($hSocket, Number($sData))
+
+		Case Else
+			; unknown rule
+			__Trace_Error(1, 0, 'Rule: "' & $sPreSyn & '" with setting: "' & $sData & '" is unknown')
+
+
+	EndSwitch
+	__Trace_FuncOut("__netcode_ManageSyn_Inherit")
+EndFunc   ;==>__netcode_ManageSyn_Inherit
+
+
+Func __netcode_ManageUser(Const $hSocket, $sPackages)
+	__Trace_FuncIn("__netcode_ManageUser")
+
+	; get the pre handshake key
+	Local $hPassword = __netcode_SocketGetPacketEncryptionPassword($hSocket)
+
+	Local $nSocketIs = 1
+	Local $hParent = __netcode_ClientGetParent($hSocket)
+	if $hParent == "000" Then $nSocketIs = 2
+
+	Local $nStage = _storageS_Read($hSocket, '_netcode_user_ConnectClientStage')
+	if $nStage == False Then $nStage = 0
+
+
+	Switch $nSocketIs
+
+		Case 1 ; if accept client
+
+			; decrypt username and password
+			$sPackages = __netcode_AESDecrypt(StringToBinary($sPackages), $hPassword)
+
+			; if we couldnt decrypt it then disconnect
+			if $sPackages == -1 Then
+				__netcode_SocketSetStageErrorAndExtended($hSocket, 'user', 1, 1)
+
+				__netcode_TCPCloseSocket($hSocket)
+				__netcode_RemoveSocket($hSocket)
+
+				__Trace_Error(1, 1, "Could not decrypt username and password")
+				Return __Trace_FuncOut("__netcode_ManageUser")
+			EndIf
+
+			; create userarray
+			Local $arUserData = StringSplit(BinaryToString($sPackages), ':', 3)
+
+			; set extra info
+			__netcode_SocketSetStageExtraInformation($hSocket, 'user', $arUserData[0])
+
+			; get user db
+			Local $arUserDB = __netcode_GetUserDB($hParent)
+
+			; find user index
+			Local $nIndex = __netcode_FindUser($arUserDB, BinaryToString($arUserData[0]))
+
+			; if the user doesnt exists then disconnect
+			if $nIndex == -1 Then
+				__netcode_SocketSetStageErrorAndExtended($hSocket, 'user', 1, 2)
+
+				; send info
+				__netcode_TCPSend($hSocket, __netcode_AESEncrypt("Wrong", $hPassword))
+
+				; do not disconnect so that the user can get a info why his login failed
+;~ 				__netcode_TCPCloseSocket($hSocket)
+;~ 				__netcode_RemoveSocket($hSocket)
+
+				__Trace_Error(1, 2, "Wrong login details")
+				Return __Trace_FuncOut("__netcode_ManageUser")
+			EndIf
+
+			; if wrong password
+			if $arUserDB[$nIndex][1] <> $arUserData[1] Then
+				__netcode_SocketSetStageErrorAndExtended($hSocket, 'user', 1, 3)
+
+				; send info
+				__netcode_TCPSend($hSocket, __netcode_AESEncrypt("Wrong", $hPassword))
+
+				; do not disconnect so that the user can get a info why his login failed
+;~ 				__netcode_TCPCloseSocket($hSocket)
+;~ 				__netcode_RemoveSocket($hSocket)
+
+				__Trace_Error(1, 3, "Wrong login details")
+				Return __Trace_FuncOut("__netcode_ManageUser")
+			EndIf
+
+			; check user state
+			Switch $arUserDB[$nIndex][2]
+
+				Case 'OnHold'
+					__netcode_TCPSend($hSocket, __netcode_AESEncrypt("OnHold", $hPassword))
+					__netcode_SocketSetStageErrorAndExtended($hSocket, 'user', 1, 4)
+					__Trace_Error(1, 4, "Account OnHold")
+					Return __Trace_FuncOut("__netcode_ManageUser")
+
+				Case 'Banned'
+					__netcode_TCPSend($hSocket, __netcode_AESEncrypt("Banned", $hPassword))
+					__netcode_SocketSetStageErrorAndExtended($hSocket, 'user', 1, 5)
+					__Trace_Error(1, 5, "Account Banned")
+					Return __Trace_FuncOut("__netcode_ManageUser")
+
+				Case 'Blocked'
+					__Trace_Error(1, 6, "Account Blocked")
+					__netcode_SocketSetStageErrorAndExtended($hSocket, 'user', 1, 6)
+					__netcode_TCPCloseSocket($hSocket)
+					__netcode_RemoveSocket($hSocket)
+					Return __Trace_FuncOut("__netcode_ManageUser")
+
+			EndSwitch
+
+			; set username to socket
+			__netcode_SocketSetUser($hSocket, BinaryToString($arUserData[0]))
+
+			; send success
+			__netcode_TCPSend($hSocket, __netcode_AESEncrypt("Success", $hPassword))
+
+			; call the stage
+			__netcode_SocketSetStageErrorAndExtended($hSocket, 'user', 0, 0)
+			__netcode_ExecuteEvent($hSocket, "connection", 'user')
+
+			; set next stage
+			__netcode_SocketSetManageMode($hSocket, 'ready')
+
+			Return __Trace_FuncOut("__netcode_ManageUser")
+
+
+		Case 2 ; if connect client
+
+
+			Switch $nStage
+
+				Case 0 ; send username and password
+
+					; get username and password
+					Local $arUserData = __netcode_SocketGetUsernameAndPassword($hSocket)
+
+					; if none where given then disconnect
+					if $arUserData[0] == False And $arUserData[1] == False Then
+						__netcode_SocketSetStageErrorAndExtended($hSocket, 'user', 2, 1)
+
+						__netcode_TCPCloseSocket($hSocket)
+						__netcode_RemoveSocket($hSocket)
+
+						__Trace_Error(1, 0, "Server requires server login. But no username or Password given.")
+						Return __Trace_FuncOut("__netcode_ManageUser")
+					EndIf
+
+					; set extra info
+					__netcode_SocketSetStageExtraInformation($hSocket, 'user', $arUserData[0])
+
+					; build packet
+					Local $sData = StringToBinary($arUserData[0]) & ':' & _netcode_SHA256($arUserData[1])
+
+					; encrypt packet
+					$sData = __netcode_AESEncrypt(StringToBinary($sData), $hPassword)
+
+					; send packet
+					__netcode_TCPSend($hSocket, $sData)
+
+					; set next user stage
+					_storageS_Overwrite($hSocket, '_netcode_user_ConnectClientStage', 1)
+
+					Return __Trace_FuncOut("__netcode_ManageUser")
+
+
+				Case 1 ; process answer
+
+					; decrypt answer
+					$sPackages = __netcode_AESDecrypt(StringToBinary($sPackages), $hPassword)
+
+					; if we couldnt decrypt it then disconnect
+					if $sPackages == -1 Then
+						__netcode_SocketSetStageErrorAndExtended($hSocket, 'user', 2, 2)
+
+						__netcode_TCPCloseSocket($hSocket)
+						__netcode_RemoveSocket($hSocket)
+
+						__Trace_Error(1, 0, "Could not decrypt Server answer in the User stage 1")
+						Return __Trace_FuncOut("__netcode_ManageUser")
+					EndIf
+
+
+					; switch answer
+					Local $bSuccess = False
+					Switch BinaryToString($sPackages)
+
+						Case "Success"
+							$bSuccess = True
+
+
+						Case "Wrong"
+							__netcode_SocketSetStageErrorAndExtended($hSocket, 'user', 2, 3)
+							__netcode_TCPCloseSocket($hSocket)
+							__netcode_RemoveSocket($hSocket)
+
+							__Trace_Error(2, 3, "User doesnt exist or Login details wrong")
+							Return __Trace_FuncOut("__netcode_ManageUser")
+
+						Case "OnHold"
+							__netcode_SocketSetStageErrorAndExtended($hSocket, 'user', 2, 4)
+							__netcode_TCPCloseSocket($hSocket)
+							__netcode_RemoveSocket($hSocket)
+
+							__Trace_Error(2, 4, "Account is OnHold")
+							Return __Trace_FuncOut("__netcode_ManageUser")
+
+						Case "Banned"
+							__netcode_SocketSetStageErrorAndExtended($hSocket, 'user', 2, 5)
+							__netcode_TCPCloseSocket($hSocket)
+							__netcode_RemoveSocket($hSocket)
+
+							__Trace_Error(2, 5, "Account is Banned")
+							Return __Trace_FuncOut("__netcode_ManageUser")
+
+					EndSwitch
+
+					if Not $bSuccess Then
+						__netcode_SocketSetStageErrorAndExtended($hSocket, 'user', 2, 6) ; temp
+						__netcode_TCPCloseSocket($hSocket)
+						__netcode_RemoveSocket($hSocket)
+
+						__Trace_Error(2, 6, "Unknown Error")
+						Return __Trace_FuncOut("__netcode_ManageUser")
+					EndIf
+
+					; set user to socket
+					Local $arUserData = __netcode_SocketGetUsernameAndPassword($hSocket)
+					__netcode_SocketSetUser($hSocket, $arUserData[0])
+
+					; call stage
+					__netcode_SocketSetStageErrorAndExtended($hSocket, 'user', 0, 0)
+					__netcode_ExecuteEvent($hSocket, "connection", 'user')
+
+					; set next stage
+					__netcode_SocketSetManageMode($hSocket, 'netcode')
+
+					; call the finish netcode stage
+					__netcode_ExecuteEvent($hSocket, "connection", 'netcode')
+
+					; send void packet so that the server gets out of the ready stage
+					_netcode_TCPSend($hSocket, 'netcode_internal', "0")
+
+					Return __Trace_FuncOut("__netcode_ManageUser")
+
+			EndSwitch
+
+
+
+	EndSwitch
+
+EndFunc
 
 Func __netcode_ManageReady($hSocket, $sPackages)
 	__Trace_FuncIn("__netcode_ManageReady", "$sPackages")
 
-;~ 	MsgBox(0, @ScriptName, $sPackages)
-
-	__netcode_ExecuteEvent($hSocket, "connection", _netcode_sParams(10, ""))
+	__netcode_ExecuteEvent($hSocket, "connection", 'netcode')
 	__netcode_SocketSetManageMode($hSocket, 'netcode')
 
-;~ 	_storageS_Overwrite($hSocket, '_netcode_IncompletePacketBuffer', $sPackages)
 	__netcode_ManageNetcode($hSocket, $sPackages)
-
-	#cs
-	Local $hPassword = __netcode_SocketGetPacketEncryptionPassword($hSocket)
-	$sPackages = BinaryToString(__netcode_AESDecrypt(StringToBinary($sPackages), $hPassword))
-
-	if $sPackages = "Ready" Then
-		__netcode_ExecuteEvent($hSocket, "connection", 10)
-		__netcode_SocketSetManageMode($hSocket, 'netcode')
-	Else
-		__Trace_Error(1, 0, "Couldnt Decrypt Ready Stage packet")
-		Return SetError(__netcode_TCPCloseSocket($hSocket), __netcode_RemoveSocket($hSocket), __Trace_FuncOut("__netcode_ManageReady", False))
-	EndIf
-	#ce
 
 	__Trace_FuncOut("__netcode_ManageReady")
 EndFunc
@@ -3401,7 +4297,7 @@ Func __netcode_SendPacketQuo()
 
 	; select clients of the send quo that are ready to send
 	Local $arTempSendQuo = __netcode_SocketSelect($__net_arPacketSendQue, False)
-
+;~ 	Local $arTempSendQuo = $__net_arPacketSendQue
 
 	; if none are capable
 	if UBound($arTempSendQuo) = 0 Then Return __Trace_FuncOut("__netcode_SendPacketQuo")
@@ -3421,6 +4317,7 @@ Func __netcode_SendPacketQuo()
 		$sData = StringToBinary(_storageS_Read($arTempSendQuo[$i], '_netcode_PacketQuo'))
 		__netcode_TCPSend($arTempSendQuo[$i], $sData, False)
 		$nError = @error
+
 
 		; empty the packet quo for the socket
 		_storageS_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuo', '')
@@ -3442,7 +4339,17 @@ Func __netcode_SendPacketQuo()
 					Next
 				EndIf
 
+				; empty the packet quo for the socket
+;~ 				_storageS_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuo', '')
+
+			Case 10058
+				; socket got closed but data was still in the send buffer.
+				; we do nothing
+
 			Case Else
+				; empty the packet quo for the socket
+;~ 				_storageS_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuo', '')
+
 				__netcode_SocketSetSendBytesPerSecond($arTempSendQuo[$i], BinaryLen($sData))
 
 				if Not $__net_bPacketConfirmation Then
@@ -3727,7 +4634,7 @@ Func __netcode_EventStrippingFix()
 	__Trace_FuncOut("__netcode_EventStrippingFix")
 	Return
 
-	__netcode_EventConnect(0, 0, 0)
+	__netcode_EventConnect(0, 0)
 	__netcode_EventDisconnect(0, 0, 0)
 	__netcode_EventFlood(0)
 	__netcode_EventBanned(0)
@@ -3739,7 +4646,7 @@ Func __netcode_EventStrippingFix()
 EndFunc   ;==>__netcode_EventStrippingFix
 
 ;~ Func __netcode_EventConnect(Const $hSocket, $nStage)
-Func __netcode_EventConnect(Const $hSocket, $nStage, $vData)
+Func __netcode_EventConnect(Const $hSocket, $nStage)
 	__Trace_FuncIn("__netcode_EventConnect", $hSocket, $nStage)
 	__Trace_FuncOut("__netcode_EventConnect")
 	__netcode_Debug("New Socket @ " & $hSocket & " on Stage: " & $nStage)
@@ -3946,6 +4853,7 @@ Func __netcode_ExecuteEvent(Const $hSocket, $sEvent, $sData = '')
 	If @error Then ; needs further testing
 		__Trace_Error(3, 0, 'Event Callback func got called with the wrong amount of params: ' & UBound($arParams) - 1)
 
+		#cs
 		; temporary
 		Switch $sEvent
 
@@ -3961,6 +4869,7 @@ Func __netcode_ExecuteEvent(Const $hSocket, $sEvent, $sData = '')
 				if @error Then __Trace_Error(5, 0, 'Event Callback func got called with the wrong amount of params: 1')
 
 		EndSwitch
+		#ce
 	EndIf
 
 	__Trace_FuncOut($sCallback)
@@ -4728,7 +5637,7 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 		_storageS_Overwrite($hSocket, '_netcode_SocketExecutionOnHold', False) ; OnHold on False
 		_storageS_Overwrite($hSocket, '_netcode_PacketDynamicSize', 0) ; needs to be inherited from the parent or the server if client is from TCPConnect()
 		Local $arBuffer[0]
-		_storageS_Overwrite($hSocket, '_netcode_EventStorage', $arBuffer) ; create event buffer with 0 elements
+		If Not IsArray(_storageS_Read($hSocket, '_netcode_EventStorage')) Then _storageS_Overwrite($hSocket, '_netcode_EventStorage', $arBuffer) ; create event buffer with 0 elements
 ;~ 		Local $arBuffer[1000] ; for BytesPerSecondArray
 ;~ 		For $i = 0 To 999
 ;~ 			$arBuffer[$i] = 0
@@ -4745,6 +5654,12 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 		_storageS_Overwrite($hSocket, '_netcode_RecvPacketPerSecond', 0)
 		_storageS_Overwrite($hSocket, '_netcode_RecvPacketPerSecondBuffer', 0)
 		_storageS_Overwrite($hSocket, '_netcode_RecvPacketPerSecondTimer', TimerInit())
+
+		; inherit the parent settings
+		_storageS_Overwrite($hSocket, '_netcode_SocketSeed', _storageS_Read($hListenerSocket, '_netcode_SocketSeed')) ; inherit seed from the parent
+		_storageS_Overwrite($hSocket, '_netcode_MaxRecvBufferSize', _storageS_Read($hListenerSocket, '_netcode_MaxRecvBufferSize'))
+		_storageS_Overwrite($hSocket, '_netcode_DefaultRecvLen', _storageS_Read($hListenerSocket, '_netcode_DefaultRecvLen'))
+
 		__netcode_SocketSetPacketEncryption($hSocket, __netcode_SocketGetPacketEncryption($hListenerSocket))
 		__netcode_SocketSetIPAndPort($hSocket, $sIP, $nPort) ; set ip and port given in _netcode_TCPConnect()
 		__netcode_SocketSetUsernameAndPassword($hSocket, $sUsername, $sPassword)
@@ -4782,6 +5697,13 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 		_storageS_Overwrite($hSocket, '_netcode_IPList', $__net_arGlobalIPList) ; set global ip list as parent ip list
 		_storageS_Overwrite($hSocket, '_netcode_IPListIsWhitelist', $__net_bGlobalIPListIsWhitelist) ; set if ip list is white or blacklist
 		_storageS_Overwrite($hSocket, '_netcode_SocketExecutionOnHold', False) ; OnHold on False
+		_storageS_Overwrite($hSocket, '_netcode_NonBlockingConnectClients', $arClients)
+
+		; inherit default options
+		_storageS_Overwrite($hSocket, '_netcode_SocketSeed', $__net_nNetcodeStringDefaultSeed) ; inherit the default seed
+		_storageS_Overwrite($hSocket, '_netcode_MaxRecvBufferSize', $__net_nMaxRecvBufferSize)
+		_storageS_Overwrite($hSocket, '_netcode_DefaultRecvLen', $__net_nDefaultRecvLen)
+
 		__netcode_SocketSetIPAndPort($hSocket, $sIP, $nPort) ; set ip and port given in _netcode_TCPListen()
 
 		Return __Trace_FuncOut("__netcode_AddSocket", $nArSize)
@@ -4797,6 +5719,11 @@ Func __netcode_RemoveSocket(Const $hSocket, $bIsParent = False, $bDisconnectTrig
 	Local $nIndex = 0
 
 	If Not $bIsParent Then ; if we remove a client from a parent
+
+		; if the remove socket is already called, but again because the disconnected event might did it again, then return to
+		; prevent recursion issues.
+		if _storageS_Read($hSocket, '_netcode_RemovalOngoing') == True Then Return __Trace_FuncOut("__netcode_RemoveSocket", False)
+		_storageS_Overwrite($hSocket, '_netcode_RemovalOngoing', True)
 
 		; get my parent socket and the client array from it
 		Local $hParentSocket = _storageS_Read($hSocket, '_netcode_MyParent')
@@ -4822,10 +5749,6 @@ Func __netcode_RemoveSocket(Const $hSocket, $bIsParent = False, $bDisconnectTrig
 			Return SetError(2, 0, __Trace_FuncOut("__netcode_RemoveSocket", False)) ; this socket doesnt exist in the array
 		EndIf
 
-		; call disconnect event
-;~ 		__netcode_ExecuteEvent($hSocket, "disconnected")
-		__netcode_ExecuteEvent($hSocket, "disconnected", _netcode_sParams($nDisconnectError, $bDisconnectTriggered))
-
 		; remove one connection from the active connection counter of the parent
 		Local $nCurrentConnections = _storageS_Read($hParentSocket, '_netcode_ListenerCurrentConnections') - 1
 		_storageS_Overwrite($hParentSocket, '_netcode_ListenerCurrentConnections', $nCurrentConnections)
@@ -4837,12 +5760,18 @@ Func __netcode_RemoveSocket(Const $hSocket, $bIsParent = False, $bDisconnectTrig
 		; store the new array
 		_storageS_Overwrite($hParentSocket, '_netcode_ListenerClients', $arClients)
 
+		; call disconnect event
+;~ 		__netcode_ExecuteEvent($hSocket, "disconnected")
+		__netcode_ExecuteEvent($hSocket, "disconnected", _netcode_sParams($nDisconnectError, $bDisconnectTriggered))
+
 		; tidy storage vars of the client socket. All vars get overwritten here with Bool False
 		_storageS_TidyGroupVars($hSocket)
 
 		; if parent socket is "000" and it has no more clients then remove the parent.
 		if $hParentSocket = "000" Then
-			if $nArSize - 1 = 0 Then __netcode_RemoveSocket("000", True)
+			if UBound(__netcode_ParentGetNonBlockingConnectClients("000")) = 0 Then
+				if $nArSize - 1 = 0 Then __netcode_RemoveSocket("000", True)
+			EndIf
 		EndIf
 
 		Return __Trace_FuncOut("__netcode_RemoveSocket", True)
@@ -4890,6 +5819,155 @@ Func __netcode_RemoveSocket(Const $hSocket, $bIsParent = False, $bDisconnectTrig
 
 EndFunc   ;==>__netcode_RemoveSocket
 
+Func __netcode_ParentAddNonBlockingConnectClient(Const $hParent, $hClient, $bDontAuthAsNetcode, $nTimeout)
+
+	; check if socket 000 exists
+	if __netcode_CheckSocket("000") == 0 Then __netcode_AddSocket("000")
+
+	; get current list
+	Local $arClients = __netcode_ParentGetNonBlockingConnectClients($hParent)
+	Local $nArSize = UBound($arClients)
+
+	; add client
+	ReDim $arClients[$nArSize + 1]
+	$arClients[$nArSize] = $hClient
+
+	; store vars
+	_storageS_Overwrite($hClient, '_netcode_Pending', True)
+	_storageS_Overwrite($hClient, '_netcode_DontAuthAsNetcode', $bDontAuthAsNetcode)
+	_storageS_Overwrite($hClient, '_netcode_TimerHandle', TimerInit())
+	_storageS_Overwrite($hClient, '_netcode_Timeout', $nTimeout)
+
+	; already create event storage, so that the dev can already add events
+	Local $arEvents[0]
+	_storageS_Overwrite($hClient, '_netcode_EventStorage', $arEvents)
+
+	; store new list
+	_storageS_Overwrite($hParent, '_netcode_NonBlockingConnectClients', $arClients)
+EndFunc
+
+Func __netcode_ParentDelNonBlockingConnectClient(Const $hParent, $hClient)
+	; get current list
+	Local $arClients = __netcode_ParentGetNonBlockingConnectClients($hParent)
+	Local $nArSize = UBound($arClients)
+
+	; find position
+	Local $nIndex = -1
+
+	For $i = 0 To $nArSize - 1
+
+		if $arClients[$i] = $hClient Then
+			$nIndex = $i
+			ExitLoop
+		EndIf
+
+	Next
+
+	if $nIndex = -1 Then Return
+
+	$arClients[$nIndex] = $arClients[$nArSize - 1]
+	ReDim $arClients[$nArSize - 1]
+
+	; wipe vars
+	_storageS_Overwrite($hClient, '_netcode_Pending', Null)
+	_storageS_Overwrite($hClient, '_netcode_DontAuthAsNetcode', Null)
+	_storageS_Overwrite($hClient, '_netcode_TimerHandle', Null)
+	_storageS_Overwrite($hClient, '_netcode_Timeout', Null)
+
+	; store new list
+	_storageS_Overwrite($hParent, '_netcode_NonBlockingConnectClients', $arClients)
+EndFunc
+
+Func __netcode_ParentCheckNonBlockingConnectClients(Const $hParent)
+	; get current list
+	Local $arClients = __netcode_ParentGetNonBlockingConnectClients($hParent)
+	Local $nArSize = UBound($arClients)
+
+	if $nArSize = 0 Then Return
+
+	; select clients that are writeable
+	$arClients = __netcode_SocketSelect($arClients, False)
+	$nArSize = UBound($arClients)
+
+	Local $arUserData[2]
+	Local $arIPAndPort[2]
+	Local $hTimer = 0
+	Local $nTimeout = 0
+	Local $bDontAuthAsNetcode = False
+
+	; see which are ready
+	if $nArSize > 0 Then
+
+		; for each connected client, remove it from the list, add it to netcode and if toggled start the authtonetcode
+		For $i = 0 To $nArSize - 1
+
+			; get vars
+			$arUserData = __netcode_SocketGetUsernameAndPassword($arClients[$i])
+			$arIPAndPort = __netcode_SocketGetIPAndPort($arClients[$i])
+			$bDontAuthAsNetcode = _storageS_Read($arClients[$i], '_netcode_DontAuthAsNetcode')
+			$nTimeout = _storageS_Read($arClients[$i], '_netcode_Timeout')
+
+			; delete socket from pending list
+			__netcode_ParentDelNonBlockingConnectClient($hParent, $arClients[$i])
+
+			; add socket to netcode
+			__netcode_AddSocket($arClients[$i], $hParent, 0, $arIPAndPort[0], $arIPAndPort[1], $arUserData[0], $arUserData[1])
+
+			; call first stage
+			__netcode_ExecuteEvent($arClients[$i], 'connection', "connect")
+
+			; trigger authtonetcode
+			if Not $bDontAuthAsNetcode Then _netcode_AuthToNetcodeServer($arClients[$i], $arUserData[0], $arUserData[1], True, $nTimeout)
+
+		Next
+
+	EndIf
+
+	; reread current list, so that we wont accidently disconnect just connected clients
+	$arClients = __netcode_ParentGetNonBlockingConnectClients($hParent)
+	$nArSize = UBound($arClients)
+
+	; check timeouts
+	If $nArSize > 0 Then
+
+		For $i = 0 To $nArSize - 1
+
+			; get timeout vars
+			$hTimer = _storageS_Read($arClients[$i], '_netcode_TimerHandle')
+			$nTimeout = _storageS_Read($arClients[$i], '_netcode_Timeout')
+
+			; if timeouted then remove the socket and call the disconnected event
+			if TimerDiff($hTimer) > $nTimeout Then
+
+				__netcode_TCPCloseSocket($arClients[$i])
+
+				__netcode_ParentDelNonBlockingConnectClient($hParent, $arClients[$i])
+
+				; timeout storage wipe only ! Otherwise the event storage would be gone at that point.
+				_storageS_TidyGroupVars($arClients[$i])
+
+				__netcode_ExecuteEvent($arClients[$i], 'disconnected', _netcode_sParams(-1, False))
+
+			EndIf
+
+		Next
+
+	EndIf
+
+	; reread again
+	$arClients = __netcode_ParentGetNonBlockingConnectClients($hParent)
+	$nArSize = UBound($arClients)
+
+	; if the list is empty and socket 000 holds no sockets then remove it
+	$arClients = __netcode_ParentGetClients("000")
+	if UBound($arClients) = 0 And $nArSize = 0 Then __netcode_RemoveSocket("000", True)
+
+EndFunc
+
+Func __netcode_ParentGetNonBlockingConnectClients(Const $hParent)
+	Return _storageS_Read($hParent, '_netcode_NonBlockingConnectClients')
+EndFunc
+
 Func __netcode_ParentGetClients(Const $hSocket)
 	__Trace_FuncIn("__netcode_ParentGetClients", $hSocket)
 	__Trace_FuncOut("__netcode_ParentGetClients")
@@ -4911,6 +5989,7 @@ Func __netcode_CheckSocket(Const $hSocket)
 	__Trace_FuncOut("__netcode_CheckSocket")
 	If _storageS_Read($hSocket, '_netcode_SocketIsListener') Then Return 1
 	If _storageS_Read($hSocket, '_netcode_MyParent') Then Return 2
+	if _storageS_Read($hSocket, '_netcode_Pending') Then Return 3
 	Return 0
 EndFunc   ;==>__netcode_CheckSocket
 
@@ -5183,7 +6262,7 @@ Func __netcode_SocketSetSendBytesPerSecond(Const $hSocket, $nBytes)
 EndFunc
 
 ; currently only works for client sockets
-Func __netcode_SocketGetSendBytesPerSecond(Const $hSocket, $nMode = 0)
+Func __netcode_SocketGetSendBytesPerSecond(Const $hSocket)
 	Local $nBytesPerSecond = _storageS_Read($hSocket, '_netcode_SendBytesPerSecond')
 
 	if $nBytesPerSecond = 0 Then
@@ -5193,20 +6272,8 @@ Func __netcode_SocketGetSendBytesPerSecond(Const $hSocket, $nMode = 0)
 		if TimerDiff(_storageS_Read($hSocket, '_netcode_SendBytesPerSecondTimer')) > 2000 Then Return 0
 	EndIf
 
-	Switch $nMode
-		Case 0 ; bytes
-			Return $nBytesPerSecond
+	Return $nBytesPerSecond
 
-		Case 1 ; kbytes
-			Return Round($nBytesPerSecond / 1024, 2)
-
-		Case 2 ; mbytes
-			Return Round($nBytesPerSecond / 1048576, 2)
-
-;~ 		Case 3 ; gbytes
-			; do we need that?
-
-	EndSwitch
 EndFunc
 
 Func __netcode_SocketSetRecvBytesPerSecond(Const $hSocket, $nBytes)
@@ -5240,7 +6307,7 @@ Func __netcode_SocketSetRecvBytesPerSecond(Const $hSocket, $nBytes)
 	__Trace_FuncOut("__netcode_SocketSetRecvBytesPerSecond")
 EndFunc
 
-Func __netcode_SocketGetRecvBytesPerSecond(Const $hSocket, $nMode = 0)
+Func __netcode_SocketGetRecvBytesPerSecond(Const $hSocket)
 	Local $nBytesPerSecond = _storageS_Read($hSocket, '_netcode_RecvBytesPerSecond')
 
 	if $nBytesPerSecond = 0 Then
@@ -5250,20 +6317,8 @@ Func __netcode_SocketGetRecvBytesPerSecond(Const $hSocket, $nMode = 0)
 		if TimerDiff(_storageS_Read($hSocket, '_netcode_RecvBytesPerSecondTimer')) > 2000 Then Return 0
 	EndIf
 
-	Switch $nMode
-		Case 0 ; bytes
-			Return $nBytesPerSecond
+	Return $nBytesPerSecond
 
-		Case 1 ; kbytes
-			Return Round($nBytesPerSecond / 1024, 2)
-
-		Case 2 ; mbytes
-			Return Round($nBytesPerSecond / 1048576, 2)
-
-;~ 		Case 3 ; gbytes
-			; do we need that?
-
-	EndSwitch
 EndFunc
 
 Func __netcode_SocketSetSendPacketPerSecond(Const $hSocket, $nCount)
@@ -5826,7 +6881,8 @@ Func __netcode_TCPListen($sIP, $sPort, $nMaxPendingConnections, $nAdressFamily =
 	Return __Trace_FuncOut("__netcode_TCPListen", $hSocket)
 EndFunc   ;==>__netcode_TCPListen
 
-Func __netcode_TCPConnect($sIP, $sPort, $nAdressFamily = 2)
+; note: add a settable timeval
+Func __netcode_TCPConnect($sIP, $sPort, $nAdressFamily = 2, $bNonBlocking = False, $nTimeout = 2000)
 	__Trace_FuncIn("__netcode_TCPConnect", $sIP, $sPort, $nAdressFamily)
 	If $__net_hWs2_32 = -1 Then $__net_hWs2_32 = DllOpen('Ws2_32.dll')
 
@@ -5847,21 +6903,28 @@ Func __netcode_TCPConnect($sIP, $sPort, $nAdressFamily = 2)
 	$arGen = DllCall($__net_hWs2_32, "uint", "inet_addr", "str", $sIP)
 	DllStructSetData($tDataBuffer, 3, $arGen[0])
 
-	; connect
+	; make socket non blocking before the connect call if $bNonBlocking
+	If $bNonBlocking Then $arGen = DllCall($__net_hWs2_32, "int", "ioctlsocket", "int", $hSocket, "dword", 0x8004667E, "uint*", 1)
+
+	; connect. Will return error 10035 always if non blocking
 	$arGen = DllCall($__net_hWs2_32, "int", "connect", "uint", $hSocket, "ptr", DllStructGetPtr($tDataBuffer), "int", DllStructGetSize($tDataBuffer))
 	If $arGen[0] <> 0 Then
 		$nError = __netcode_WSAGetLastError()
+		if $bNonBlocking Then
+			Return SetError($nError, 0, __Trace_FuncOut("__netcode_TCPConnect", $hSocket))
+		EndIf
 		__Trace_Error($nError, 0)
 		Return SetError($nError, 0, __Trace_FuncOut("__netcode_TCPConnect", -1))
 	EndIf
+
+	; make socket non blocking after the connect call if Not $bNonBlocking
+	If Not $bNonBlocking Then $arGen = DllCall($__net_hWs2_32, "int", "ioctlsocket", "int", $hSocket, "dword", 0x8004667E, "uint*", 1)
 
 	; disable Nagle algorithm for testing https://docs.microsoft.com/en-us/windows/win32/api/winsock/nf-winsock-setsockopt
 	Local $tworkspace = DllStructCreate("BOOLEAN")
 	DllStructSetData($tworkspace, 1, False)
 	$arGen = DllCall($__net_hWs2_32, "int", "setsockopt", "uint", $hSocket, "int", 6, "int", 1, "struct*", $tworkspace, "int", DllStructGetSize($tworkspace))
 
-	; make socket non blocking
-	$arGen = DllCall($__net_hWs2_32, "int", "ioctlsocket", "int", $hSocket, "dword", 0x8004667E, "uint*", 1)
 
 	Return __Trace_FuncOut("__netcode_TCPConnect", $hSocket)
 EndFunc   ;==>__netcode_TCPConnect
