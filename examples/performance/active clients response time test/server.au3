@@ -5,29 +5,47 @@
 #EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
 #include "..\..\..\_netcode_Core.au3"
 
-
+; set how large the data will be that the server sends to each client on request
 Global $__nPacketSize = 1048576 * 0.3 ; bytes - 1048576 is 1 MB
+
+; set server port
 Global $__nServerPort = 1225
-Global $__hServerSocket = False
+
+; set if you want to use encryption
+Local $bEnableEncryption = False
+
+
+; internals
 Global $__hTimer = TimerInit()
 Global $__hTimerSecond = TimerInit()
 Global $__sData = ""
 
+
+; create data set
 For $i = 1 To $__nPacketSize
 	$__sData &= "1"
 Next
 
+; startup _netcode
 _netcode_Startup()
 $__net_bTraceEnable = False
-_netcode_PresetEvent("getdata", "_Event_GetData")
-_netcode_PresetEvent("connection", "_Event_Connection")
 
-$__hServerSocket = _netcode_TCPListen($__nServerPort, "0.0.0.0", Default, 5000)
+; startup listener
+Global $__hServerSocket = _netcode_TCPListen($__nServerPort, "0.0.0.0", Default, 5000)
 if Not $__hServerSocket Then Exit MsgBox(16, "Error", "Could not open Port. Exiting")
-;~ _netcode_SetOption($__hServerSocket, "Encryption", True)
 
+; set options
+_netcode_SetOption($__hServerSocket, "Encryption", $bEnableEncryption)
+
+; add events
+_netcode_SetEvent($__hServerSocket, 'getdata', "_Event_GetData")
+_netcode_SetEvent($__hServerSocket, 'connection', "_Event_Connection")
+
+; local for consolewrite
 Local $sText = ""
 
+
+; main
 While _netcode_Loop($__hServerSocket)
 	if TimerDiff($__hTimerSecond) > 1000 Then
 
@@ -42,12 +60,15 @@ While _netcode_Loop($__hServerSocket)
 	$__hTimer = TimerInit()
 WEnd
 
+
+
+
+; events
 Func _Event_GetData(Const $hSocket)
 	_netcode_TCPSend($hSocket, "postdata", $__sData)
 EndFunc
 
 Func _Event_Connection(Const $hSocket, $sStage)
-;~ 	if $sStage <> 'netcode' Then Return
-;~ 	ConsoleWrite("New Socket @ " & $hSocket & @CRLF)
+	; nothing
 EndFunc
 

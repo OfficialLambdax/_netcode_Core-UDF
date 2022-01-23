@@ -1,3 +1,24 @@
+22.01.2022 (DD/MM/YYYY) 0.1.5.22
+	
+	THIS VERSION IS INCOMPATIBLE WITH ALL PREVIOUS VERSIONS
+	
+	Fixed
+		- _netcode_PresetEvent() was double writing default events to the $__net_arDefaultEventsForEachNewClientSocket array.
+		
+		- __netcode_Shutdown() was only removing the standard default events. Now the function will remove all default events.
+	
+	Added
+		- __netcode_CryptDestroyKey() from CryptoNG to adequatly destroy keys for clean up.
+	
+	Changed
+		- The __netcode_ManageHandshake_SubRandomRSA() handshake mode now additionally encrypts the RSA encrypted key with the
+		preshared AES key. So that someone analyzing the packets in the same network cant see that RSA encrypted text is transmitted.
+		
+		- __netcode_SeedingClientStrings() now encrypts the PacketBegin and PacketEnd String. So that those strings no longer can be
+		reversed to the Seed. Because these Srings get created from the Seed. This is also the first step to make the packet wrapper
+		strings indistinguishable from the packet content.
+
+
 22.01.2022 (DD/MM/YYYY) 0.1.5.21
 	
 	SCRIPT BREAKING CHANGES

@@ -9,20 +9,37 @@
 	until we get the next data.
 #ce
 
+; connect to this ip
 Global $__sServerIP = "127.0.0.1"
-Global $__nServerPort = 1225
-Global $__nSocketAmount = 100
-Global $__arClients[$__nSocketAmount][2] ; socket | timer handle | timerdiff result
 
+; and to this port
+Global $__nServerPort = 1225
+
+; set how many clients to connect
+Global $__nSocketAmount = 100
+
+; internal
+Global $__arClients[$__nSocketAmount][2] ; socket | timer handle
+
+
+
+; startup _netcode
 _netcode_Startup()
 $__net_bTraceEnable = False
-_netcode_PresetEvent("postdata", "_Event_GotData")
+
+
+; preset event
 _netcode_PresetEvent("connection", "_Event_Connection")
 
 ; connect all clients
 ConsoleWrite("Connecting Sockets.." & @CRLF)
 For $i = 0 To $__nSocketAmount - 1
 	$__arClients[$i][0] = _netcode_TCPConnect($__sServerIP, $__nServerPort)
+
+	; add events
+	_netcode_SetEvent($__arClients[$i][0], 'postdata', "_Event_GotData")
+
+	; add index to storage
 	_storageS_Overwrite($__arClients[$i][0], '_ArrayIndex', $i)
 Next
 
@@ -33,9 +50,13 @@ For $i = 0 To $__nSocketAmount - 1
 	$__arClients[$i][1] = TimerInit()
 Next
 
-; loop
+; main
 While _netcode_Loop("000")
 WEnd
+
+
+
+; events
 
 ; the server responded, now check how long it took with all sockets beging active
 Func _Event_GotData(Const $hSocket, $sData)

@@ -365,7 +365,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.21"
+Global Const $__net_sNetcodeVersion = "0.1.5.22"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -2297,8 +2297,13 @@ Func _netcode_PresetEvent($sName, $sCallback, $bSet = True)
 
 	If $bSet Then
 
-;~ 		if $nIndex <> -1 Then Return SetError(1, 0, False) ; this event is already set
-		; ~ todo check if the array then has two events !
+		; check if the event is already set
+		if $nIndex <> -1 Then
+
+			; if so then remove it first
+			_netcode_PresetEvent($sName, "", False)
+			$nArSize = UBound($__net_arDefaultEventsForEachNewClientSocket)
+		EndIf
 
 		ReDim $__net_arDefaultEventsForEachNewClientSocket[$nArSize + 1][2]
 		$__net_arDefaultEventsForEachNewClientSocket[$nArSize][0] = $sName
@@ -3629,11 +3634,14 @@ Func __netcode_ManageHandshake_SubRandomRSA(Const $hSocket, $nSocketIs, $hPasswo
 
 				Case 1 ; decrypt rsa response from connect client to get the new packet encryption pw
 
+					; decrypt AES encrypted RSA encrypted key
+					$vData = __netcode_AESDecrypt(StringToBinary($vData), $hPassword)
+
 					; get our priv key
 					Local $sPrivateKey = __netcode_SocketGetMyRSA($hSocket)
 
 					; decrypt the session key with our priv key
-					$vData = __netcode_RSADecrypt(StringToBinary($vData), $sPrivateKey)
+					$vData = __netcode_RSADecrypt($vData, $sPrivateKey)
 
 					; if we cant decrypt it then return False
 					if $vData == "" Then
@@ -3645,7 +3653,7 @@ Func __netcode_ManageHandshake_SubRandomRSA(Const $hSocket, $nSocketIs, $hPasswo
 					__netcode_SocketSetStageExtraInformation($hSocket, 'handshake', BinaryToString($vData))
 
 					; destroy pre handshake key
-					; ~ todo
+					__netcode_CryptDestroyKey($hPassword)
 
 					; derive the new key
 					$hPassword = __netcode_AESDeriveKey(BinaryToString($vData), 'packetencryption')
@@ -3679,13 +3687,6 @@ Func __netcode_ManageHandshake_SubRandomRSA(Const $hSocket, $nSocketIs, $hPasswo
 			; set extra info
 			__netcode_SocketSetStageExtraInformation($hSocket, 'handshake', $sPassword)
 
-			; destroy the pre handshake key
-			; ~ todo
-
-			; make it our new packet encryption key
-			$hPassword = __netcode_AESDeriveKey($sPassword, 'packetencryption')
-			__netcode_SocketSetPacketEncryptionPassword($hSocket, $hPassword)
-
 			; encrypt the password with the public key
 			Local $sData = __netcode_RSAEncrypt($sPassword, $sPublicKey)
 
@@ -3694,6 +3695,16 @@ Func __netcode_ManageHandshake_SubRandomRSA(Const $hSocket, $nSocketIs, $hPasswo
 				__netcode_SocketSetStageErrorAndExtended($hSocket, 'handshake', 3, 0)
 				Return __Trace_FuncOut("__netcode_ManageHandshake_SubRandomRSA", False)
 			EndIf
+
+			; encrypt the rsa encrypted key with the preshared key
+			$sData = __netcode_AESEncrypt($sData, $hPassword)
+
+			; destroy the pre handshake key
+			__netcode_CryptDestroyKey($hPassword)
+
+			; make it our new packet encryption key
+			$hPassword = __netcode_AESDeriveKey($sPassword, 'packetencryption')
+			__netcode_SocketSetPacketEncryptionPassword($hSocket, $hPassword)
 
 			; send the encrypted session key to the server
 			__netcode_TCPSend($hSocket, $sData)
@@ -4119,7 +4130,6 @@ Func __netcode_ManageNetcode($hSocket, $sPackages)
 	__Trace_FuncIn("__netcode_ManageNetcode", "$sPackages")
 
 	$sPackages = _storageS_Read($hSocket, '_netcode_IncompletePacketBuffer') & $sPackages
-;~ 	if @ScriptName = "server.au3" Then MsgBox(0, "", _storageS_Read($hSocket, '_netcode_IncompletePacketBuffer'))
 	_storageS_Overwrite($hSocket, '_netcode_IncompletePacketBuffer', "")
 	; if the StringLeft() isnt $__net_sPacketBegin then we may have no netcode packet and have to check if its maybe something socks etc. related
 
@@ -4127,9 +4137,8 @@ Func __netcode_ManageNetcode($hSocket, $sPackages)
 	Local $sPacketBegin = $arPacketStrings[0]
 	Local $sPacketInternalSplit = $arPacketStrings[1]
 	Local $sPacketEnd = $arPacketStrings[2]
-;~ 	Local $sPacketBegin = $__net_sPacketBegin
-;~ 	Local $sPacketInternalSplit = $__net_sPacketInternalSplit
-;~ 	Local $sPacketEnd = $__net_sPacketEnd
+
+	Local $sPacketEndLen = StringLen($sPacketEnd)
 
 	Local $arPackages = StringSplit($sPackages, $sPacketBegin, 1)
 	Local $arPacketContent[0]
@@ -4139,7 +4148,8 @@ Func __netcode_ManageNetcode($hSocket, $sPackages)
 ;~ 	if @ScriptName = "server.au3" Then MsgBox(0, "", $sPackages)
 
 	For $i = 2 To $arPackages[0]
-		If StringRight($arPackages[$i], 10) <> $sPacketEnd Then
+;~ 		If StringRight($arPackages[$i], 10) <> $sPacketEnd Then
+		If StringRight($arPackages[$i], $sPacketEndLen) <> $sPacketEnd Then
 			; packet is incomplete
 			; if its not the last in the array then the whole recv most probably also is corrupted
 			; ~ todo
@@ -4150,7 +4160,8 @@ Func __netcode_ManageNetcode($hSocket, $sPackages)
 			ContinueLoop
 		EndIf
 
-		$arPackages[$i] = StringTrimRight($arPackages[$i], 10)
+
+		$arPackages[$i] = StringTrimRight($arPackages[$i], $sPacketEndLen)
 
 
 		; check if socket has encryption toggled
@@ -4208,8 +4219,6 @@ EndFunc   ;==>__netcode_ManageNetcode
 Func __netcode_ManageRawLinked(Const $hSocket, $sData)
 	__Trace_FuncIn("__netcode_ManageRawLinked")
 
-;~ 	MsgBox(0, @ScriptName, $sData)
-
 	Local $sCallback = __netcode_SocketGetLinkedCallback($hSocket)
 	if Not $sCallback Then
 		__Trace_Error(1, 0, "Couldnt get a Callback")
@@ -4231,32 +4240,6 @@ Func __netcode_ManageRawLinked(Const $hSocket, $sData)
 
 	__Trace_FuncOut("__netcode_ManageRawLinked")
 EndFunc
-
-
-; for _netcode_TCPConnect() only
-; ~ todo remove this function
-Func __netcode_PreRecvPackages(Const $hSocket)
-	__Trace_FuncIn("__netcode_PreRecvPackages", $hSocket)
-
-	Local $sPackage = ""
-
-	Do
-		$sPackage = __netcode_RecvPackages($hSocket)
-		If @extended = 1 Then
-;~ 			__netcode_TCPCloseSocket($hSocket)
-;~ 			__netcode_RemoveSocket($hSocket)
-
-			__Trace_Error(2, 0, "Disconnected")
-			Return SetError(2, 0, __Trace_FuncOut("__netcode_PreRecvPackages", False)) ; lost connection
-		EndIf
-
-		; timeout here ~ todo
-
-	Until $sPackage <> ''
-
-	Return __Trace_FuncOut("__netcode_PreRecvPackages", $sPackage)
-EndFunc   ;==>__netcode_PreRecvPackages
-
 
 Func __netcode_AddPacketToQue(Const $hSocket, $sPackage, $nID = False)
 	__Trace_FuncIn("__netcode_AddPacketToQue", $hSocket, "$sPackage", $nID)
@@ -5768,6 +5751,9 @@ Func __netcode_RemoveSocket(Const $hSocket, $bIsParent = False, $bDisconnectTrig
 ;~ 		__netcode_ExecuteEvent($hSocket, "disconnected")
 		__netcode_ExecuteEvent($hSocket, "disconnected", _netcode_sParams($nDisconnectError, $bDisconnectTriggered))
 
+		; destroy aes key
+		__netcode_CryptDestroyKey(__netcode_SocketGetPacketEncryptionPassword($hSocket))
+
 		; tidy storage vars of the client socket. All vars get overwritten here with Bool False
 		_storageS_TidyGroupVars($hSocket)
 
@@ -6091,14 +6077,11 @@ Func __netcode_Shutdown()
 
 	EndIf
 
-
-	; remove default events
-	_netcode_PresetEvent("connection", "", False)
-	_netcode_PresetEvent("disconnected", "", False)
-	_netcode_PresetEvent("flood", "", False)
-	_netcode_PresetEvent("banned", "", False)
-	_netcode_PresetEvent("message", "", False)
-	_netcode_PresetEvent("netcode_internal", "", False)
+	; remove all default events
+	Local $arEvents = $__net_arDefaultEventsForEachNewClientSocket
+	For $i = 0 To UBound($arEvents) - 1
+		_netcode_PresetEvent($arEvents[$i][0], "", False)
+	Next
 
 	; close cryptography provider
 	__netcode_CryptShutdown()
@@ -6135,9 +6118,32 @@ EndFunc   ;==>__netcode_Seeding
 
 Func __netcode_SeedingClientStrings(Const $hSocket, $nSeed)
 	__Trace_FuncIn("__netcode_SeedingClientStrings", $hSocket, $nSeed)
-	__netcode_SocketSetPacketStrings($hSocket, __netcode_SeedToString($nSeed, 10, "PacketBegin"), __netcode_SeedToString($nSeed, 10, "PacketInternalSplit"), __netcode_SeedToString($nSeed, 10, "PacketEnd"))
+
+	; create key just for the client strings
+	Local $hPassword = __netcode_AESDeriveKey($nSeed, "ClientStrings")
+
+	; encrypt the packet wrapper begin string
+	Local $sPacketBegin = BinaryToString(__netcode_AESEncrypt(__netcode_SeedToString($nSeed, 10, "PacketBegin"), $hPassword))
+;~ 	Local $sPacketBegin = __netcode_SeedToString($nSeed, 10, "PacketBegin")
+
+	; keep the internal packet content split string unencrypted
+	Local $sPacketInternalSplit = __netcode_SeedToString($nSeed, 10, "PacketInternalSplit")
+
+	; and encrypt the packet wrapper end string
+	Local $sPacketEnd = BinaryToString(__netcode_AESEncrypt(__netcode_SeedToString($nSeed, 10, "PacketEnd"), $hPassword))
+;~ 	Local $sPacketEnd = __netcode_SeedToString($nSeed, 10, "PacketEnd")
+
+	__netcode_CryptDestroyKey($hPassword)
+
+
+	__netcode_SocketSetPacketStrings($hSocket, $sPacketBegin, $sPacketInternalSplit, $sPacketEnd)
+
+
+	; maybe at some point
 ;~ 	__netcode_SocketSetParamStrings($hSocket, __netcode_SeedToString($nSeed, 10, "ParamIndicatorString"), __netcode_SeedToString($nSeed, 10, "ParamSplitSeperator"))
 ;~ 	__netcode_SocketSetSerializerStrings($hSocket, __netcode_SeedToString($nSeed, 10, "SerializationIndicator"), __netcode_SeedToString($nSeed, 10, "SerializeArrayIndicator"), __netcode_SeedToString($nSeed, 10, "SerializeArrayYSeperator"), __netcode_SeedToString($nSeed, 10, "SerializeArrayXSeperator"))
+
+
 	__Trace_FuncOut("__netcode_SeedingClientStrings")
 EndFunc   ;==>__netcode_SeedingClientStrings
 
@@ -7144,6 +7150,10 @@ Func __netcode_AESDeriveKey($vKey, $sSalt)
 	if False = True Then __netcode_Au3CheckFix($arDeriveKey)
 
 EndFunc   ;==>__netcode_AESDeriveKey
+
+Func __netcode_CryptDestroyKey($hPassword)
+	DllCall($__net_hInt_bcryptdll, "int", "BCryptDestroyKey", "handle",  $hPassword)
+EndFunc
 
 ; i had to fiddle around with RSA alot to make it compatible to all data inputs. Thats why it looks so wonky.
 Func __netcode_RSAEncrypt($sData, $sPublicKey)
