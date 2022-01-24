@@ -12,9 +12,7 @@
 #include <GUIConstantsEx.au3>
 #include <StaticConstants.au3>
 #include <WindowsConstants.au3>
-
-; create a global for the buttons
-Global $__arSocketGuiButtons[0][3] ; socket | toggle button | disconnect button
+Opt("GUIOnEventMode", 1)
 
 
 ; startup netcode
@@ -29,6 +27,8 @@ _netcode_SetEvent($hMyParent, 'connection', "_Event_Connection")
 _netcode_SetEvent($hMyParent, 'disconnected', "_Event_Disconnected")
 _netcode_SetEvent($hMyParent, 'SetPicture', "_Event_SetPicture")
 
+; timer
+Local $hTimer = TimerInit()
 
 
 ; loop parent
@@ -39,7 +39,11 @@ While True
 	if _netcode_ParentGetClients($hMyParent, True) = 0 Then
 		Sleep(50)
 	Else
-		_Internal_CatchButtonPress()
+		if TimerDiff($hTimer) > 5000 Then
+			ConsoleWrite("Receiving: " & _netcode_SocketGetRecvBytesPerSecond($hMyParent, 2) & " MB/s" & @CRLF)
+
+			$hTimer = TimerInit()
+		EndIf
 	EndIf
 WEnd
 
@@ -66,14 +70,21 @@ Func _Event_Connection(Const $hSocket, $sStage)
 	Local $arParentPos = WinGetPos($fMain)
 	Local $fPicture = GUICreate("TEST", $arParentPos[2] - 30, $arParentPos[3] - 105, -1, 50, $ws_popup, $ws_ex_mdichild, $fMain) ;$ws_popup
 
-	; register buttons to guigetmsg sub function
-	_Internal_AddButtons($hSocket, $fbToggle, $fbDisconnect)
-
 	; store gui variables
 	_netcode_SocketSetVar($hSocket, 'Main', $fMain)
-	_netcode_SocketSetVar($hSocket, 'Toggle', $fbToggle)
-	_netcode_SocketSetVar($hSocket, 'Disconnect', $fbDisconnect)
 	_netcode_SocketSetVar($hSocket, 'Picture', $fPicture)
+
+	; store socket to buttons
+	_storageS_Overwrite($fbToggle, '_GUI_Socket', $hSocket)
+	_storageS_Overwrite($fbDisconnect, '_GUI_Socket', $hSocket)
+
+	; store button types
+	_storageS_Overwrite($fbToggle, '_GUICTRL_Type', "Toggle")
+	_storageS_Overwrite($fbDisconnect, '_GUICTRL_Type', "Disconnect")
+
+	; register gui events
+	GUICtrlSetOnEvent($fbToggle, "_GuiEvent_ButtonPress")
+	GUICtrlSetOnEvent($fbDisconnect, "_GuiEvent_ButtonPress")
 
 	; show gui
 	GUISetState(@SW_SHOW, $fMain)
@@ -90,63 +101,33 @@ Func _Event_Disconnected(Const $hSocket, $nError, $bIntended)
 
 	GUIDelete($fMain)
 
-	_Internal_DeleteButtons($hSocket)
-
 EndFunc
 
-; switches the buttons
-Func _Internal_CatchButtonPress()
 
-	Local $hGuiMsg = GUIGetMsg()
-	If Not $hGuiMsg Then Return
 
-	if $hGuiMsg = $GUI_EVENT_CLOSE Then Exit ; exit the program
+Func _GuiEvent_ButtonPress()
 
-	For $i = 0 To UBound($__arSocketGuiButtons) - 1
+	Local $hPressedControl = @GUI_CtrlId
+	Local $hSocket = _storageS_Read($hPressedControl, '_GUI_Socket')
 
-		if $__arSocketGuiButtons[$i][1] = $hGuiMsg Then ; if toggle button
-			_netcode_TCPSend($__arSocketGuiButtons[$i][0], 'Toggle')
+	Switch _storageS_Read($hPressedControl, '_GUICTRL_Type')
 
-			if GUICtrlRead($__arSocketGuiButtons[$i][1]) = "Start" Then
-				GUICtrlSetData($__arSocketGuiButtons[$i][1], "Stop")
+		Case "Toggle"
+			_netcode_TCPSend($hSocket, 'Toggle')
+
+			if GUICtrlRead($hPressedControl) == "Start" Then
+				GUICtrlSetData($hPressedControl, "Stop")
 			Else
-				GUICtrlSetData($__arSocketGuiButtons[$i][1], "Start")
+				GUICtrlSetData($hPressedControl, "Start")
 			EndIf
 
-		ElseIf $__arSocketGuiButtons[$i][2] = $hGuiMsg Then ; if disconnect button
-			_netcode_TCPSend($__arSocketGuiButtons[$i][0], 'Close')
 
-		EndIf
+		Case "Disconnect"
+			_netcode_TCPSend($hSocket, 'Close')
 
-	Next
+
+	EndSwitch
 
 EndFunc
 
-Func _Internal_AddButtons($hSocket, $fbToggle, $fbDisconnect)
-	Local $nArSize = UBound($__arSocketGuiButtons)
 
-	ReDim $__arSocketGuiButtons[$nArSize + 1][3]
-	$__arSocketGuiButtons[$nArSize][0] = $hSocket
-	$__arSocketGuiButtons[$nArSize][1] = $fbToggle
-	$__arSocketGuiButtons[$nArSize][2] = $fbDisconnect
-EndFunc
-
-Func _Internal_DeleteButtons($hSocket)
-	Local $nArSize = UBound($__arSocketGuiButtons)
-
-	Local $nIndex = -1
-	For $i = 0 To $nArSize - 1
-		if $__arSocketGuiButtons[$i][0] = $hSocket Then
-			$nIndex = $i
-			ExitLoop
-		EndIf
-	Next
-
-	if $nIndex = -1 Then Return
-
-	$__arSocketGuiButtons[$nIndex][0] = $__arSocketGuiButtons[$nArSize - 1][0]
-	$__arSocketGuiButtons[$nIndex][1] = $__arSocketGuiButtons[$nArSize - 1][1]
-	$__arSocketGuiButtons[$nIndex][2] = $__arSocketGuiButtons[$nArSize - 1][2]
-
-	ReDim $__arSocketGuiButtons[$nArSize - 1][3]
-EndFunc

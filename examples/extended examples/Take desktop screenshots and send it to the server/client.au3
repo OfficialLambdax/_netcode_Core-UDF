@@ -1,6 +1,6 @@
 #Region ;**** Directives created by AutoIt3Wrapper_GUI ****
 #AutoIt3Wrapper_Version=Beta
-#AutoIt3Wrapper_Change2CUI=y
+#AutoIt3Wrapper_Change2CUI=n
 #EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
 ;~ #NoTrayIcon
 #AutoIt3Wrapper_Au3stripper_OnError=ForceUse
@@ -28,10 +28,10 @@ _netcode_SetEvent($hMyClient, 'Close', "_Event_Close")
 
 
 ; loop client
-While True
+While Sleep(10)
 	If Not _netcode_Loop($hMyClient) Then Exit
 
-	if $__bToggle Then _netcode_TCPSend($hMyClient, 'SetPicture', BinaryToString(_Screenshot_ReturnData(20)))
+	if $__bToggle Then _netcode_TCPSend($hMyClient, 'SetPicture', BinaryToString(_Screenshot_ReturnData(20)), False)
 WEnd
 
 
