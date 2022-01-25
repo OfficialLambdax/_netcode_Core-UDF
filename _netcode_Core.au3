@@ -365,7 +365,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.22"
+Global Const $__net_sNetcodeVersion = "0.1.5.23"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -2708,9 +2708,9 @@ Func _netcode_CheckSocket(Const $hSocket)
 
 		Case 2
 			If __netcode_ClientGetParent($hSocket) = "000" Then
-				Return SetError(0, 1, 2)
-			Else
 				Return SetError(0, 2, 2)
+			Else
+				Return SetError(0, 1, 2)
 			EndIf
 
 		Case 3
@@ -3006,13 +3006,36 @@ EndFunc   ;==>_netcode_SHA256
 ; Parameters ....: $hSocket             - [const] The socket
 ;                  $sOption             - String option name
 ;                  $sData               - Variable option parameter
-; Return values .: None
+; Return values .: True					= If Success
+;				 : False				= If not
+;				 : -2					= Unknown Socket
+;				 : -1					= Option does not exist
+; Errors ........: 1					= Wrong Socket type
+;				 : 2					= The variable Option parameter was of the Wrong type
+;				 :
+; Options .......: Socket Type			Option name						Input type						Description
+;				 : Parent/Accept Client	Encryption						True / False (Bool)				Enables or Disables the Data encryption of the given socket. (Default False)
+;				 : Parent				AllowSocketLinkingSetup			True / False (Bool)				Ignore this Option
+;				 : Connect Client		AllowSocketLinkingRequest		True / False (Bool)				Ignore this Option
+;				 : All					Seed							Number (Int32 / Int64 / Double)	~ todo
+;				 : Parent/Accept Client	Handshake Method				String							Sets the handshake method to use (RandomRSA, PresharedAESKey, PresharedRSAKey) (Default RandomRSA)
+;				 : All					Handshake Preshared AESKey		String							Sets the preshared AES key
+;				 : All					Handshake Preshared RSAKey		Array/Binary					Parent or Accept client require an Array [0] = private [1] = public. The connect client requires the public key in binary.
+;				 : Connect Client		Handshake Enable Preshared AES	True / False (Bool)				Enables or Disables the handshake mode. (Default False)
+;				 : Connect Client		Handshake Enable Preshared RSA	True / False (Bool)				Enables or Disables the handshake mode. (Default False)
+;				 : Connect Client		Handshake Enable Random RSA		True / False (Bool)				Enables or Disables the handshake mode. (Default True)
 ; Modified ......:
 ; Remarks .......:
 ; Example .......: No
 ; ===============================================================================================================================
 Func _netcode_SetOption(Const $hSocket, $sOption, $sData)
 	__Trace_FuncIn("_netcode_SetOption", $hSocket, $sOption, $sData)
+
+	if __netcode_CheckSocket($hSocket) == 0 Then
+		__Trace_Error(-2, 0, "Unknown Socket")
+		Return SetError(-2, 0, __Trace_FuncOut("_netcode_SetOption", False))
+	EndIf
+
 	Switch $sOption
 
 		Case "Encryption"
@@ -3023,6 +3046,128 @@ Func _netcode_SetOption(Const $hSocket, $sOption, $sData)
 
 			__netcode_SocketSetPacketEncryption($hSocket, $sData)
 			Return __Trace_FuncOut("_netcode_SetOption", True)
+
+		Case "Handshake Method" ; parent or accept client
+			_netcode_CheckSocket($hSocket)
+			If @extended == 2 Then ; socket is connect client
+				__Trace_Error(1, 0, "Wrong Socket type", "", $sOption)
+				Return SetError(1, 0, __Trace_FuncOut("_netcode_SetOption", False))
+			EndIf
+
+			Switch $sData
+
+				Case "RandomRSA" ; default
+					__netcode_SocketSetHandshakeMode($hSocket, "RandomRSA")
+
+				Case "PresharedAESKey" ; the AES key is preshared and just needs to be verified similiar to the auth stage
+					__netcode_SocketSetHandshakeMode($hSocket, "PresharedAESKey")
+
+				Case "PresharedRSAKey" ; the RSA public key is preshared with the Client
+					__netcode_SocketSetHandshakeMode($hSocket, "PresharedRSAKey")
+
+				Case Else
+					; ~ todo
+
+			EndSwitch
+
+		Case "Handshake Custom"
+			; $sData needs to contain the callback
+			; ~ todo
+
+
+		Case "Handshake Preshared AESKey" ; parent, accept or connect client
+			; needs to be of type string
+			if Not IsString($sData) Then
+				__Trace_Error(2, 0, "Data needs to be of type String", "", $sOption, VarGetType($sData))
+				Return SetError(2, 0, __Trace_FuncOut("_netcode_SetOption", False))
+			EndIf
+
+			__netcode_SocketSetHandshakeExtra($hSocket, $sData)
+
+		Case "Handshake Preshared RSAKey" ; parent, accept or connect client
+			; parent and accept clients need to give an array containing the priv at [0] and the pub at [1].
+			; connect client needs to give a binary containing the pub key.
+
+			_netcode_CheckSocket($hSocket)
+			Switch @extended
+
+				Case 0, 1 ; if parent or accept client
+					If Not IsArray($sData) Then
+						__Trace_Error(2, 0, "Data needs to be of type Array", "", $sOption, VarGetType($sData))
+						Return SetError(2, 0, __Trace_FuncOut("_netcode_SetOption", False))
+					EndIf
+
+					__netcode_SocketSetHandshakeExtra($hSocket, $sData)
+
+				Case 2 ; if connect client
+
+					If Not IsBinary($sData) Then
+						__Trace_Error(2, 0, "Data needs to be of type Binary", "", $sOption, VarGetType($sData))
+						Return SetError(2, 0, __Trace_FuncOut("_netcode_SetOption", False))
+					EndIf
+
+					__netcode_SocketSetHandshakeExtra($hSocket, $sData)
+
+			EndSwitch
+
+
+		Case "Handshake Enable Preshared AES" ; connect client only - disabled by default
+			_netcode_CheckSocket($hSocket)
+			Switch @extended
+
+				Case 0, 1
+					__Trace_Error(1, 0, "Wrong Socket type", "", $sOption)
+					Return SetError(1, 0, __Trace_FuncOut("_netcode_SetOption", False))
+
+				Case 2
+
+					If Not IsBool($sData) Then
+						__Trace_Error(2, 0, "Data needs to be of type Bool", "", $sOption, VarGetType($sData))
+						Return SetError(2, 0, __Trace_FuncOut("_netcode_SetOption", False))
+					EndIf
+
+					__netcode_SocketSetHandshakeModeEnable($hSocket, "PresharedAESKey", $sData)
+
+			EndSwitch
+
+
+		Case "Handshake Enable Preshared RSA" ; connect client only - disabled by default
+			_netcode_CheckSocket($hSocket)
+			Switch @extended
+
+				Case 0, 1
+					__Trace_Error(1, 0, "Wrong Socket type", "", $sOption)
+					Return SetError(1, 0, __Trace_FuncOut("_netcode_SetOption", False))
+
+				Case 2
+
+					If Not IsBool($sData) Then
+						__Trace_Error(2, 0, "Data needs to be of type Bool", "", $sOption, VarGetType($sData))
+						Return SetError(2, 0, __Trace_FuncOut("_netcode_SetOption", False))
+					EndIf
+
+					__netcode_SocketSetHandshakeModeEnable($hSocket, "PresharedRSAKey", $sData)
+
+			EndSwitch
+
+		Case "Handshake Enable Random RSA" ; connect client only - enabled by default
+			_netcode_CheckSocket($hSocket)
+			Switch @extended
+
+				Case 0, 1
+					__Trace_Error(1, 0, "Wrong Socket type", "", $sOption)
+					Return SetError(1, 0, __Trace_FuncOut("_netcode_SetOption", False))
+
+				Case 2
+
+					If Not IsBool($sData) Then
+						__Trace_Error(2, 0, "Data needs to be of type Bool", "", $sOption, VarGetType($sData))
+						Return SetError(2, 0, __Trace_FuncOut("_netcode_SetOption", False))
+					EndIf
+
+					__netcode_SocketSetHandshakeModeEnable($hSocket, "RandomRSA", $sData)
+
+			EndSwitch
 
 		Case "AllowSocketLinkingSetup"
 			If Not IsBool($sData) Then
@@ -3050,9 +3195,25 @@ Func _netcode_SetOption(Const $hSocket, $sOption, $sData)
 				_netcode_SetEvent($hSocket, 'netcode_socketlinkconfirmation', "__netcode_EventSocketLinkConfirmation", False)
 			EndIf
 
+		Case "Seed"
+			If __netcode_CheckSocket($hSocket) <> 1 Then
+				If _netcode_StageGetError($hSocket, "Syn") <> -1 Then
+					__Trace_Error(3, 0, "Socket already has a Shared Seed", "", $sOption)
+					Return SetError(3, 0, __Trace_FuncOut("_netcode_SetOption", False))
+				EndIf
+			EndIf
+
+			if Not IsNumber($sData) Then
+				__Trace_Error(2, 0, "Data needs to be of type Int32, Int64 or Double", "", $sOption, VarGetType($sData))
+				Return SetError(2, 0, __Trace_FuncOut("_netcode_SetOption", False))
+			EndIf
+
+			_storageS_Overwrite($hSocket, '_netcode_SocketSeed', $sData)
+
+
 		Case Else
-			__Trace_Error(1, 0, "Unknown Option", "", $sOption, $sData)
-			Return SetError(1, 0, __Trace_FuncOut("_netcode_SetOption", False)) ; unknown option
+			__Trace_Error(-1, 0, "Unknown Option", "", $sOption, $sData)
+			Return SetError(-1, 0, __Trace_FuncOut("_netcode_SetOption", False)) ; unknown option
 
 
 	EndSwitch
@@ -3440,7 +3601,10 @@ Func __netcode_ManagePreSyn(Const $hSocket, $sPackages)
 		Case 1 ; if accept client
 
 			; create presyn option set for the connect client to inherit
-			Local $arPreSyn[0][0]
+			Local $arPreSyn[1][2]
+
+			$arPreSyn[0][0] = "HandshakeMode"
+			$arPreSyn[0][1] = __netcode_SocketGetHandshakeMode($hSocket)
 
 			; ~ todo
 			; like the handshake mode and the following stage order
@@ -3482,7 +3646,7 @@ Func __netcode_ManagePreSyn(Const $hSocket, $sPackages)
 				__netcode_RemoveSocket($hSocket)
 
 				__Trace_Error(1, 0, "Could not decrypt presyn data")
-				Return __Trace_FuncOut("__netcode_ManageAuth")
+				Return __Trace_FuncOut("__netcode_ManagePreSyn")
 			EndIf
 
 			; deserialize presyn data
@@ -3499,6 +3663,16 @@ Func __netcode_ManagePreSyn(Const $hSocket, $sPackages)
 				For $i = 0 To $nArSize - 1
 					; ~ todo
 					; also check here if the presyn data is allowed and if the required stages are present
+
+					If Not __netcode_ManagePreSyn_Inherit($hSocket, $arPreSyn[$i][0], $arPreSyn[$i][1]) Then
+						__netcode_SocketSetStageErrorAndExtended($hSocket, 'presyn', 1, 0)
+
+						__netcode_TCPCloseSocket($hSocket)
+						__netcode_RemoveSocket($hSocket)
+
+						__Trace_Error(2, 0, "Cannot inherit Option " & $arPreSyn[$i][0] & " " & $arPreSyn[$i][1])
+						Return __Trace_FuncOut("__netcode_ManagePreSyn")
+					EndIf
 				Next
 
 			EndIf
@@ -3515,6 +3689,28 @@ Func __netcode_ManagePreSyn(Const $hSocket, $sPackages)
 			__netcode_SocketSetManageMode($hSocket, 'handshake')
 
 			Return __Trace_FuncOut("__netcode_ManagePreSyn")
+
+	EndSwitch
+
+EndFunc
+
+Func __netcode_ManagePreSyn_Inherit(Const $hSocket, $sOption, $vData)
+
+	Switch $sOption
+
+		Case "HandshakeMode"
+			; check if the mode is present
+			; ~ todo
+
+			; check if the mode is enabled
+			If Not __netcode_SocketGetHandshakeModeEnable($hSocket, $vData) Then Return False
+
+			__netcode_SocketSetHandshakeMode($hSocket, $vData)
+
+			Return True
+
+		Case Else
+			; ~ todo
 
 	EndSwitch
 
@@ -3544,7 +3740,27 @@ Func __netcode_ManageHandshake(Const $hSocket, $sPackages)
 			; or send the preset public key + cert for TLS
 			; or create a random rsa set
 
-			$bReturn = __netcode_ManageHandshake_SubRandomRSA($hSocket, $nSocketIs, $hPassword, $sPackages)
+			Switch __netcode_SocketGetHandshakeMode($hSocket)
+
+				Case "RandomRSA"
+					$bReturn = __netcode_ManageHandshake_SubRandomRSA($hSocket, $nSocketIs, $hPassword, $sPackages)
+
+				Case "PresharedAESKey"
+					$bReturn = __netcode_ManageHandshake_SubPreSharedAESKey($hSocket, $nSocketIs, $hPassword, $sPackages)
+
+				Case "PresharedRSAKey"
+					$bReturn = __netcode_ManageHandshake_SubPreSharedRSASKey($hSocket, $nSocketIs, $hPassword, $sPackages)
+
+;~ 				Case "Custom"
+;~ 					; ~ todo
+
+;~ 				Case Else
+					; ~ todo
+
+
+			EndSwitch
+
+
 			if $bReturn == False Then
 
 				__netcode_TCPCloseSocket($hSocket)
@@ -3570,7 +3786,27 @@ Func __netcode_ManageHandshake(Const $hSocket, $sPackages)
 			; perform the preset handshake mode here
 			; ~ todo
 
-			$bReturn = __netcode_ManageHandshake_SubRandomRSA($hSocket, $nSocketIs, $hPassword, $sPackages)
+			Switch __netcode_SocketGetHandshakeMode($hSocket)
+
+				Case "RandomRSA"
+					$bReturn = __netcode_ManageHandshake_SubRandomRSA($hSocket, $nSocketIs, $hPassword, $sPackages)
+
+				Case "PresharedAESKey"
+					$bReturn = __netcode_ManageHandshake_SubPreSharedAESKey($hSocket, $nSocketIs, $hPassword, $sPackages)
+
+				Case "PresharedRSAKey"
+					$bReturn = __netcode_ManageHandshake_SubPreSharedRSASKey($hSocket, $nSocketIs, $hPassword, $sPackages)
+
+;~ 				Case "Custom"
+;~ 					; ~ todo
+
+;~ 				Case Else
+					; ~ todo
+
+
+			EndSwitch
+
+
 			if $bReturn == False Then
 
 				__netcode_TCPCloseSocket($hSocket)
@@ -3716,6 +3952,218 @@ Func __netcode_ManageHandshake_SubRandomRSA(Const $hSocket, $nSocketIs, $hPasswo
 	EndSwitch
 
 EndFunc
+
+Func __netcode_ManageHandshake_SubPreSharedAESKey(Const $hSocket, $nSocketIs, $hPassword, $vData = "")
+
+	Local $nSubStage = _storageS_Read($hSocket, '_netcode_handshake_SubPreSharedAESKeyStage')
+	if $nSubStage == False Then $nSubStage = 0
+
+	Switch $nSocketIs
+
+		Case 1 ; if accept client
+
+			Switch $nSubStage
+
+				Case 0 ; request the connect client to send a encrypted sample text
+					__netcode_TCPSend($hSocket, __netcode_AESEncrypt("PreSharedAESKey", $hPassword))
+
+					; set next sub stage
+					_storageS_Overwrite($hSocket, '_netcode_handshake_SubPreSharedAESKeyStage', 1)
+					Return Null
+
+
+				Case 1 ; try to decrypt the sample text with the preshared key
+					; destroy the old key
+					__netcode_CryptDestroyKey($hPassword)
+
+					; take new key from storage
+					Local $sPassword = __netcode_SocketGetHandshakeExtra($hSocket)
+
+					if $sPassword == False Then
+						__Trace_Error(0, 0, "Missing Password for the PreSharedAESKey handshake mode")
+						Return False
+					EndIf
+
+					; derive the new key
+					$hPassword = __netcode_AESDeriveKey($sPassword, 'packetencryption')
+
+					; make it the new packet encryption key
+					__netcode_SocketSetPacketEncryptionPassword($hSocket, $hPassword)
+
+					; try to decrypt the sample text
+					$vData = __netcode_AESDecrypt(StringToBinary($vData), $hPassword)
+
+					; check sample test
+					if $vData <> "PreSharedAESKey" Then
+
+						Return False
+					EndIf
+
+					__netcode_SocketSetStageExtraInformation($hSocket, 'handshake', $sPassword)
+
+					Return True
+
+
+			EndSwitch
+
+
+		Case 2 ; if connect client
+
+			$vData = __netcode_AESDecrypt(StringToBinary($vData), $hPassword)
+
+			; check if the accept client send the right string
+			if BinaryToString($vData) <> "PreSharedAESKey" Then
+
+				Return False
+			EndIf
+
+			; destroy the old key
+			__netcode_CryptDestroyKey($hPassword)
+
+			; take the new key from the storage
+			Local $sPassword = __netcode_SocketGetHandshakeExtra($hSocket)
+
+			; check if the preshared aes key was set
+			if $sPassword == False Then
+				__Trace_Error(0, 0, "Missing Password for the PreSharedAESKey handshake mode")
+				Return False
+			Endif
+
+			; derive the new key
+			$hPassword = __netcode_AESDeriveKey($sPassword, 'packetencryption')
+
+			; make it our packet encryption key
+			__netcode_SocketSetPacketEncryptionPassword($hSocket, $hPassword)
+
+			; encrypt the sample text with it
+			Local $sData = __netcode_AESEncrypt("PreSharedAESKey", $hPassword)
+
+			; send it
+			__netcode_TCPSend($hSocket, $sData)
+
+			__netcode_SocketSetStageExtraInformation($hSocket, 'handshake', $sPassword)
+
+			Return True
+
+
+	EndSwitch
+
+EndFunc
+
+Func __netcode_ManageHandshake_SubPreSharedRSASKey(Const $hSocket, $nSocketIs, $hPassword, $vData = "")
+
+	Local $nSubStage = _storageS_Read($hSocket, '_netcode_handshake_SubPreSharedRSAKeyStage')
+	if $nSubStage == False Then $nSubStage = 0
+
+	Switch $nSocketIs
+
+		Case 1 ; accept client
+
+			Switch $nSubStage
+
+				Case 0 ; request the connect client to create a session key and encrypt it with preshared public key
+
+					__netcode_TCPSend($hSocket, __netcode_AESEncrypt("PreSharedRSAKey", $hPassword))
+
+					; set next sub stage
+					_storageS_Overwrite($hSocket, '_netcode_handshake_SubPreSharedRSAKeyStage', 1)
+					Return Null
+
+				Case 1 ; decrypt the session key
+
+					; decrypt to the rsa text
+					$vData = __netcode_AESDecrypt(StringToBinary($vData), $hPassword)
+
+					; get the priv key
+					Local $sPrivateKey = __netcode_SocketGetHandshakeExtra($hSocket)
+
+					if $sPrivateKey == False Then
+						__Trace_Error(0, 0, "Missing Private key for the PreSharedAESKey handshake mode")
+						Return False
+					EndIf
+
+					$sPrivateKey = $sPrivateKey[0]
+
+					; decrypt the rsa text
+					$vData = BinaryToString(__netcode_RSADecrypt($vData, $sPrivateKey))
+
+					if $vData == "" Then
+
+						Return False
+					EndIf
+
+					; destroy the old key
+					__netcode_CryptDestroyKey($hPassword)
+
+					; derive the new
+					$hPassword = __netcode_AESDeriveKey($vData, 'packetencryption')
+
+					; make it the session key
+					__netcode_SocketSetPacketEncryptionPassword($hSocket, $hPassword)
+
+					__netcode_SocketSetStageExtraInformation($hSocket, 'handshake', $vData)
+
+					Return True
+
+
+
+			EndSwitch
+
+
+		Case 2 ; connect client
+
+			; decrypt the request
+			$vData = __netcode_AESDecrypt(StringToBinary($vData), $hPassword)
+
+			; check the request string
+			if BinaryToString($vData) <> "PreSharedRSAKey" Then
+
+				Return False
+			EndIf
+
+
+			; read the public from the storage
+			Local $sPublicKey = __netcode_SocketGetHandshakeExtra($hSocket)
+
+			; check the public key
+			if $sPublicKey == False Then
+				__Trace_Error(0, 0, "Missing Public key for the PreSharedRSAKey handshake mode")
+				Return False
+			EndIf
+
+			; create session key
+			Local $sPassword = __netcode_RandomPW(40, 4)
+
+
+			; RSA encrypt the session key
+			Local $sData = __netcode_RSAEncrypt($sPassword, $sPublicKey)
+
+
+			; encrypt the rsa text with the preshared
+			$sData = __netcode_AESEncrypt($sData, $hPassword)
+
+			; send it
+			__netcode_TCPSend($hSocket, $sData)
+
+			; destroy the old key
+			__netcode_CryptDestroyKey($hPassword)
+
+			; derive the new key
+			$hPassword = __netcode_AESDeriveKey($sPassword, 'packetencryption')
+
+			; make it the session key
+			__netcode_SocketSetPacketEncryptionPassword($hSocket, $hPassword)
+
+			__netcode_SocketSetStageExtraInformation($hSocket, 'handshake', $sPassword)
+
+			Return True
+
+
+
+	EndSwitch
+
+EndFunc
+
 
 ; the accept client reads its settings, like the maximum recv buffer size, the session seed etc. and sends it to the connect client.
 ; the connect client inherits these server options but also verifies them.
@@ -5337,6 +5785,32 @@ Func __netcode_SocketGetUsernameAndPassword(Const $hSocket)
 	Return _storageS_Read($hSocket, '_netcode_UsernameAndPassword')
 EndFunc
 
+Func __netcode_SocketSetHandshakeMode(Const $hSocket, $sMode)
+	_storageS_Overwrite($hSocket, '_netcode_HandhakeMode', $sMode)
+EndFunc
+
+Func __netcode_SocketGetHandshakeMode(Const $hSocket)
+	Return _storageS_Read($hSocket, '_netcode_HandhakeMode')
+EndFunc
+
+; keys or some other info
+Func __netcode_SocketSetHandshakeExtra(Const $hSocket, $vData)
+	_storageS_Overwrite($hSocket, '_netcode_HandhakeExtra', $vData)
+EndFunc
+
+Func __netcode_SocketGetHandshakeExtra(Const $hSocket)
+	Return _storageS_Read($hSocket, '_netcode_HandhakeExtra')
+EndFunc
+
+; "PresharedRSAKey", "PresharedAESKey", "RandomRSA"
+Func __netcode_SocketSetHandshakeModeEnable(Const $hSocket, $sMode, $bSet)
+	_storageS_Overwrite($hSocket, '_netcode_IsHandshakeModeEnabled_' & $sMode, $bSet)
+EndFunc
+
+Func __netcode_SocketGetHandshakeModeEnable(Const $hSocket, $sMode)
+	Return _storageS_Read($hSocket, '_netcode_IsHandshakeModeEnabled_' & $sMode)
+EndFunc
+
 Func __netcode_SocketAddLinkID(Const $hSocket, $nLinkID, $sCallback, $vAdditionalData)
 	__Trace_FuncIn("__netcode_SocketAddLinkID")
 	Local $arData = __netcode_SocketGetLinkIDs($hSocket)
@@ -5644,8 +6118,13 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 
 		; inherit the parent settings
 		_storageS_Overwrite($hSocket, '_netcode_SocketSeed', _storageS_Read($hListenerSocket, '_netcode_SocketSeed')) ; inherit seed from the parent
-		_storageS_Overwrite($hSocket, '_netcode_MaxRecvBufferSize', _storageS_Read($hListenerSocket, '_netcode_MaxRecvBufferSize'))
-		_storageS_Overwrite($hSocket, '_netcode_DefaultRecvLen', _storageS_Read($hListenerSocket, '_netcode_DefaultRecvLen'))
+		_storageS_Overwrite($hSocket, '_netcode_MaxRecvBufferSize', _storageS_Read($hListenerSocket, '_netcode_MaxRecvBufferSize')) ; inherit max buffer size
+		_storageS_Overwrite($hSocket, '_netcode_DefaultRecvLen', _storageS_Read($hListenerSocket, '_netcode_DefaultRecvLen')) ; inherit default recv len
+		__netcode_SocketSetHandshakeMode($hSocket, __netcode_SocketGetHandshakeMode($hListenerSocket)) ; take handshake mode from parent
+		__netcode_SocketSetHandshakeExtra($hSocket, __netcode_SocketGetHandshakeExtra($hListenerSocket)) ; take handshake extra from parent
+		__netcode_SocketSetHandshakeModeEnable($hSocket, "PresharedRSAKey", __netcode_SocketGetHandshakeModeEnable($hListenerSocket, "PresharedRSAKey"))
+		__netcode_SocketSetHandshakeModeEnable($hSocket, "PresharedAESKey", __netcode_SocketGetHandshakeModeEnable($hListenerSocket, "PresharedAESKey"))
+		__netcode_SocketSetHandshakeModeEnable($hSocket, "RandomRSA", __netcode_SocketGetHandshakeModeEnable($hListenerSocket, "RandomRSA"))
 
 		__netcode_SocketSetPacketEncryption($hSocket, __netcode_SocketGetPacketEncryption($hListenerSocket))
 		__netcode_SocketSetIPAndPort($hSocket, $sIP, $nPort) ; set ip and port given in _netcode_TCPConnect()
@@ -5690,6 +6169,12 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 		_storageS_Overwrite($hSocket, '_netcode_SocketSeed', $__net_nNetcodeStringDefaultSeed) ; inherit the default seed
 		_storageS_Overwrite($hSocket, '_netcode_MaxRecvBufferSize', $__net_nMaxRecvBufferSize)
 		_storageS_Overwrite($hSocket, '_netcode_DefaultRecvLen', $__net_nDefaultRecvLen)
+		__netcode_SocketSetHandshakeMode($hSocket, "RandomRSA") ; needs to be inherited by the default options !
+;~ 		__netcode_SocketSetHandshakeExtra($hSocket, "") ; ~ todo
+		; "PresharedRSAKey", "PresharedAESKey", "RandomRSA"
+		__netcode_SocketSetHandshakeModeEnable($hSocket, "PresharedRSAKey", False) ; needs to be inherited by the default options !
+		__netcode_SocketSetHandshakeModeEnable($hSocket, "PresharedAESKey", False)
+		__netcode_SocketSetHandshakeModeEnable($hSocket, "RandomRSA", True)
 
 		__netcode_SocketSetIPAndPort($hSocket, $sIP, $nPort) ; set ip and port given in _netcode_TCPListen()
 

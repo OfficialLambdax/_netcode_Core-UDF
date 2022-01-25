@@ -1,3 +1,23 @@
+25.01.2022 (DD/MM/YYYY) 0.1.5.23
+
+
+	Fixed
+		- A typo in __netcode_ManagePresyn() that could crash a connect client.
+
+	Added
+		- 2 New Handshake methods
+		
+			Preshared RSA Key
+			
+			Preshared AES Key
+			
+			How they work can be viewed in .\changelog\v0.1.5.23 Handshake modes.jpg
+			
+			And within .\examples\basic examples\how to use different handshake methods.
+			
+
+
+
 22.01.2022 (DD/MM/YYYY) 0.1.5.22
 	
 	THIS VERSION IS INCOMPATIBLE WITH ALL PREVIOUS VERSIONS
