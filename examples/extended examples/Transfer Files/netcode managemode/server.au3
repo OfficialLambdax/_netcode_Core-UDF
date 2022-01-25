@@ -18,7 +18,7 @@ Global $__nHowManyClientsAreAllowedAtOnce = 10
 Global $__sfDownloadPath = @ScriptDir & "\Downloads"
 
 ; witch each client a session key is handshaked. The current method is not safe against man in the middle attacks
-Global $__bUseEncryption = False
+Global $__bUseEncryption = True
 
 ; set to true if you want to deny the upload of a file that is already present in the storage
 Global $__bDenyOverwritingOfExistingFiles = False
@@ -26,6 +26,16 @@ Global $__bDenyOverwritingOfExistingFiles = False
 
 ; =========================================================================
 ; Init
+
+Local $sPrivateKey = "%privatekey%"
+
+if $sPrivateKey == "%privatekey%" Then
+	Exit MsgBox(48, "Server Error", "Private key is not set yet")
+EndIf
+
+Local $arKeys[2]
+$arKeys[0] = StringToBinary($sPrivateKey)
+;~ $arKeys[1] = ; not used yet
 
 ; startup netcode
 _netcode_Startup()
@@ -42,6 +52,12 @@ if @error Then Exit MsgBox(16, "Server Error", "Could not startup listener at po
 
 ; toggle encryption
 _netcode_SetOption($__hMyParent, "Encryption", $__bUseEncryption)
+
+; enable the preshared rsa key handshake method
+_netcode_SetOption($__hMyParent, "Handshake Method", "PresharedRSAKey")
+
+; set the private key
+_netcode_SetOption($__hMyParent, "Handshake Preshared RSAKey", $arKeys)
 
 ; set callback events
 _netcode_SetEvent($__hMyParent, 'RegisterDownload', "_Event_RegisterDownload")
@@ -202,6 +218,9 @@ Func _Event_Connect(Const $hSocket, $sStage)
 		Case 'auth'
 			ConsoleWrite("New Client @ " & $hSocket & @CRLF)
 
+		Case 'handshake'
+			ConsoleWrite("Client @ " & $hSocket & " uses session key: " & _netcode_StageGetExtraInformation($hSocket) & @CRLF)
+
 		Case 'netcode'
 			ConsoleWrite("Client @ " & $hSocket & " Ready" & @CRLF)
 
@@ -210,7 +229,6 @@ EndFunc
 
 ; venting message data for performance tests
 Func _Event_Message(Const $hSocket, $sData)
-
 EndFunc
 
 

@@ -22,16 +22,34 @@ Local $arErrors[0][2]
 Local $nArSize = 0
 Local $rMsgBox = 0
 Local $nError = 0
+Local $sPublicKey = "%publickey%"
+
+If $sPublicKey == "%publickey%" Then
+	Exit MsgBox(48, "Client Error", "Public key not set yet")
+EndIf
 
 _netcode_Startup()
 
 If Not @Compiled Then $__net_bTraceEnable = True
 
-Global $__hMyConnectClient = _netcode_TCPConnect($__sConnectToIP, $__sConnectToPort)
+Global $__hMyConnectClient = _netcode_TCPConnect($__sConnectToIP, $__sConnectToPort, True)
 if Not $__hMyConnectClient Then Exit MsgBox(16, "Client Error", "Cannot Connect to Server")
+
+; enable the preshared rsa key handshake method
+_netcode_SetOption($__hMyConnectClient, "Handshake Enable Preshared RSA", True)
+
+; disable the Random RSA method
+_netcode_SetOption($__hMyConnectClient, "Handshake Enable Random RSA", False)
+
+; set the public key
+_netcode_SetOption($__hMyConnectClient, "Handshake Preshared RSAKey", StringToBinary($sPublicKey))
 
 ; set non callback events
 _netcode_SetEvent($__hMyConnectClient, 'RegisterResponse')
+
+If Not _netcode_AuthToNetcodeServer($__hMyConnectClient) Then
+	Exit MsgBox(16, "Client Error", "Could not Stage through")
+EndIf
 
 ; =========================================================================
 ; Main
