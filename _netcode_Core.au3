@@ -365,7 +365,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.23"
+Global Const $__net_sNetcodeVersion = "0.1.5.24"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
@@ -771,7 +771,7 @@ Func _netcode_TCPConnect($sIP, $vPort, $bDontAuthAsNetcode = False, $sUsername =
 		; auth to netcode server if toggled on
 		if Not $bDontAuthAsNetcode Then
 
-			$bAuth = _netcode_AuthToNetcodeServer($hSocket, $sUsername, $sPassword, $bNonBlocking, $nTimeout)
+			$bAuth = _netcode_AuthToNetcodeServer($hSocket, $sUsername, $sPassword, $bNonBlocking)
 			If Not $bAuth Then
 				$nError = @error
 				$nExtended = @extended
@@ -799,56 +799,53 @@ EndFunc
 ;                  $sUsername           - [optional] If the Server is Usermanaged then enter the Username here
 ;                  $sPassword           - [optional] If the Server is Usermanaged then enter the Password here
 ;                  $bNonBlocking        - [optional] Set to True if you want the Staging to be non Blocking
-;                  $nTimeout            - [optional] Time in ms
 ; Return values .: True					= If the staging was a success (blocking only)
 ;				 : False				= If the staging failes (blocking only)
 ;				 : Null					= Always on a non blocking call
 ; Errors ........: 1					= Socket is unknown to _netcode
-;				 : 2					= Socket is pending. Auth not possible.
 ; Modified ......:
-; Remarks .......: There is only a single use case for this function. This is for when you call _netcode_TCPConnect() blocking,
-;				 : then add events and then call this one. Why would you? Because the "connection" or "diconnected" event for example
-;				 : would be the default events and your socket specific wouldnt be called, because they arent set yet.
-;				 : So you could connect, add those events and then AuthToNetcode to make sure that your events are called.
+; Remarks .......: You use this function for when you call _netcode_TCPConnect() with the $bDontAuthTAsNetcode set to True.
+;				 : If you do this then you can set socket specific options or events to the connect socket, so that they are
+;				 : applied to them before the staging is started. This is helpfull because you need the socket first
+;				 : to apply changes to it.
+;				 : This function call also be Non Blocking. That the socket might still be pending doesnt matter.
 ; Example .......: No
 ; ===============================================================================================================================
-Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = "", $bNonBlocking = False, $nTimeout = 2000)
+Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = "", $bNonBlocking = False)
 
 	; if the socket is unknown then return false
 	If __netcode_CheckSocket($hSocket) = 0 Then Return SetError(1, 0, False) ; socket is unknown to netcode
-	If __netcode_CheckSocket($hSocket) = 3 Then Return SetError(2, 0, False)
 
-	; if the call is set to be non blocking
-	if $bNonBlocking Then
-
-		; then just trigger the first stage
-		__netcode_ManageAuth($hSocket, Null)
-
-		; and return Null
-		Return Null
-
-	Else ; if the call is set to be blocking
-
-		; trigger first stage
-		__netcode_ManageAuth($hSocket, Null)
-
-		; wait until we reached stage 10
-		While __netcode_CheckSocket($hSocket) <> 0
-
-			; loop just this socket
-			_netcode_RecvManageExecute($hSocket)
-
-			; exitloop once stage = 10
-			if __netcode_SocketGetManageMode($hSocket) = 10 Then ExitLoop
-		WEnd
-
-		; in case we exited loop because the socket disconnected then return false
-		if __netcode_CheckSocket($hSocket) = 0 Then Return False
-
-		; other call it a success
-		Return True
-
+	if $sUsername <> "" Or $sPassword <> "" Then
+		__netcode_SocketSetUsernameAndPassword($hSocket, $sUsername, $sPassword)
 	EndIf
+
+	; if the socket is pending then set the dont auth to netcode toggle to False
+	If __netcode_CheckSocket($hSocket) = 3 Then
+		_storageS_Overwrite($hSocket, '_netcode_DontAuthAsNetcode', False)
+	Else
+		; otherwie trigger the first stage now
+		__netcode_ManageAuth($hSocket, Null)
+	EndIf
+
+	; if the call is set to be non blocking then return Null
+	if $bNonBlocking Then Return Null
+
+	; otherwsie wait until we reached stage 10 (netcode)
+	While __netcode_CheckSocket($hSocket) <> 0
+
+		; loop just this socket
+		_netcode_Loop($hSocket)
+
+		; exitloop once stage = 10
+		if __netcode_SocketGetManageMode($hSocket) = 10 Then ExitLoop
+	WEnd
+
+	; in case we exited loop because the socket disconnected then return false
+	if __netcode_CheckSocket($hSocket) = 0 Then Return False
+
+	; other call it a success
+	Return True
 
 EndFunc
 
@@ -1286,11 +1283,11 @@ EndFunc
 ;										  with $SB_UFT8 otherwise data corruption will happen.
 ;                  $bWaitForFloodPrevention- [optional] See Remarks
 ; Return values .: False				= If the packet couldnt be quod
-;				   True					= If the packet was successfully quod
+;				   True					= If the packet was successfully quod or buffered
 ; Errors ........: 10					= Illegal event used
 ;				   11					= The given Data is to large to be ever send
 ;				   12					= Tracer Warning only: The given Data is not of Type String.
-;				   13					= The socket is not in the required 'netcode' stage.
+;				   13					= The socket is not in the required 'netcode' stage. Data is buffered and send once the socket is the 'netcode' stage.
 ;                  1					= Flood prevention error. Will be returned if the data couldnt be quod because the buffer is too full
 ; Extended ......: 1					= Socket is unknown or the Socket got disconnected
 ; Modified ......:
@@ -1322,8 +1319,25 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 
 	; check the managemode the socket is in
 	If __netcode_SocketGetManageMode($hSocket) <> 10 Then
-		__Trace_Error(13, 0, "Socket is not in the netcode stage")
-		Return SetError(13, 0, __Trace_FuncOut("_netcode_TCPSend", False))
+
+		Local $arBuffer = _storageS_Read($hSocket, '_netcode_PreNetcodeSendBuffer')
+		if Not IsArray($arBuffer) Then
+			Local $arBuffer[0][3]
+		EndIf
+
+		Local $nArSize = UBound($arBuffer)
+		ReDim $arBuffer[$nArSize + 1][3]
+		$arBuffer[$nArSize][0] = $sEvent
+		$arBuffer[$nArSize][1] = $sData
+		$arBuffer[$nArSize][2] = $bWaitForFloodPrevention
+
+		_storageS_Overwrite($hSocket, '_netcode_PreNetcodeSendBuffer', $arBuffer)
+
+		; trigger a warn info
+		; ~ todo
+
+;~ 		__Trace_Error(13, 0, "Socket is not in the netcode stage")
+		Return SetError(13, 0, __Trace_FuncOut("_netcode_TCPSend", True))
 	EndIf
 
 	; check if the given event is illegal
@@ -3486,6 +3500,22 @@ Func __netcode_SocketSetManageMode(Const $hSocket, $sMode)
 	EndIf
 
 	_storageS_Overwrite($hSocket, '_netcode_SocketManageMode', Int($nMode))
+
+	if $nMode = 10 Then
+		Local $arBuffer = _storageS_Read($hSocket, '_netcode_PreNetcodeSendBuffer')
+		If IsArray($arBuffer) Then
+
+			Local $nArSize = UBound($arBuffer)
+
+			For $i = 0 To $nArSize - 1
+				If Not _netcode_TCPSend($hSocket, $arBuffer[$i][0], $arBuffer[$i][1], $arBuffer[$i][2]) Then
+					__Trace_LogError(0, 0, "Prenetcode Stage Buffer could not be successfully send for Event: " & $arBuffer[0])
+				EndIf
+			Next
+
+			_storageS_Overwrite($hSocket, '_netcode_PreNetcodeSendBuffer', Null)
+		EndIf
+	EndIf
 
 	Return __Trace_FuncOut("__netcode_SocketSetManageMode", True)
 EndFunc   ;==>__netcode_SocketSetManageMode
@@ -6392,7 +6422,7 @@ Func __netcode_ParentCheckNonBlockingConnectClients(Const $hParent)
 			__netcode_ExecuteEvent($arClients[$i], 'connection', "connect")
 
 			; trigger authtonetcode
-			if Not $bDontAuthAsNetcode Then _netcode_AuthToNetcodeServer($arClients[$i], $arUserData[0], $arUserData[1], True, $nTimeout)
+			if Not $bDontAuthAsNetcode Then _netcode_AuthToNetcodeServer($arClients[$i], $arUserData[0], $arUserData[1], True)
 
 		Next
 
@@ -6416,12 +6446,12 @@ Func __netcode_ParentCheckNonBlockingConnectClients(Const $hParent)
 
 				__netcode_TCPCloseSocket($arClients[$i])
 
+				__netcode_ExecuteEvent($arClients[$i], 'disconnected', _netcode_sParams(-1, False))
+
 				__netcode_ParentDelNonBlockingConnectClient($hParent, $arClients[$i])
 
 				; timeout storage wipe only ! Otherwise the event storage would be gone at that point.
 				_storageS_TidyGroupVars($arClients[$i])
-
-				__netcode_ExecuteEvent($arClients[$i], 'disconnected', _netcode_sParams(-1, False))
 
 			EndIf
 
@@ -8382,7 +8412,7 @@ Func __Trace_LogFunc($p1, $p2, $p3, $p4, $p5, $p6, $nTimerDiff = False)
 	EndIf
 EndFunc   ;==>__Trace_LogFunc
 
-Func __Trace_LogError($nError, $nExtended, $sErrorDescription, $sExtendedDescription)
+Func __Trace_LogError($nError, $nExtended, $sErrorDescription, $sExtendedDescription = "")
 	If Not $__net_bTraceLogErrorEnable Then Return
 
 	Local $sError = ""

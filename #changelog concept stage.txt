@@ -1,3 +1,28 @@
+27.01.2022 (DD/MM/YYYY) 0.1.5.24
+
+	Fixed
+		- __netcode_ParentCheckNonBlockingConnectClients() deleted important variables before the disconnected event was called.
+		That lead to the inability to retrieve informartion about timeouted connections.
+		
+		- _netcode_AuthToNetcodeServer() was ignoring the given Username and Password.
+		
+		- _netcode_AuthToNetcodeServer(). Removed the $nTimeout param from the function, it wasnt ment to be there and had no usage.
+		
+		- _netcode_AuthToNetcodeServer() now also has a different behaviour for Pending sockets. Pending sockets (ID 3) are those that
+		are offsprings from a non blocking call with _netcode_TCPConnect(). When the connect function is called non blocking then it saves
+		the $bDontAuthAsNetcode toggle. If it was set to False originally then _netcode_AuthToNetcodeServer() will change that to True and will
+		either then block or not, based around what $bNonBlocking is set to. So it is now possible to call this function even when the
+		socket is still pending.
+		
+	Changed
+		- _netcode_TCPSend() previously denied the quoing of packets if the socket wasnt in the required 'netcode' final stage.
+		Instead of this the function will know buffer the packet and send the data automatically once the 'netcode' final stage
+		got reached. The function also remembers the toggle of $bWaitForFloodPrevention. This feature was implemented to make
+		developing applications easier for beginners that might do this mistake. In the future this feature
+		will also log a tracer warning to the console. Generally it is unsafe to use it, because the individual client
+		doesnt yet know the settings of the server and therefore any quoed packet could be too large and it send attempt could fail.
+
+
 25.01.2022 (DD/MM/YYYY) 0.1.5.23
 
 
