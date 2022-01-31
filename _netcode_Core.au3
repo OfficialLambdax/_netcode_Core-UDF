@@ -275,6 +275,10 @@
 ; ===================================================================================================================================================
 ; General Settings
 
+; The UDF checks once a day if its up to date, toggle to False if you dont want that
+; this toggle also affects addons, its global for all _netcode elements.
+Global $__net_bCheckForUDFUpdate = True
+
 ; maximum buffer size
 Global $__net_nMaxRecvBufferSize = 1048576 * 5
 
@@ -365,8 +369,12 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.24"
+Global Const $__net_sNetcodeVersion = "0.1.5.25"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
+Global Const $__net_sNetcodeOfficialRepositoryURL = "https://github.com/OfficialLambdax/_netcode_Core-UDF"
+Global Const $__net_sNetcodeOfficialRepositoryChangelogURL = "https://github.com/OfficialLambdax/_netcode_Core-UDF/blob/main/%23changelog%20concept%20stage.txt"
+Global Const $__net_sNetcodeVersionURL = "https://raw.githubusercontent.com/OfficialLambdax/_netcode-UDF/main/versions/_netcode_Core.version"
+Global Const $__net_sNetcodeHKCUPath = "HKCU\SOFTWARE\_netcode_UDF\"
 
 if $__net_nNetcodeStringDefaultSeed = "%NotSet%" Then __netcode_Installation()
 __netcode_EventStrippingFix()
@@ -6553,6 +6561,9 @@ Func __netcode_Init()
 	_netcode_PresetEvent("message", "__netcode_EventMessage")
 	_netcode_PresetEvent("netcode_internal", "__netcode_EventInternal")
 
+	; only check if script is compiled, it is enabled and only once a day.
+	__netcode_UDFVersionCheck($__net_sNetcodeVersionURL, $__net_sNetcodeOfficialRepositoryURL, $__net_sNetcodeOfficialRepositoryChangelogURL, '_netcode_Core', $__net_sNetcodeVersion)
+
 	$__net_bNetcodeStarted = True
 	__Trace_FuncOut("__netcode_Init")
 EndFunc   ;==>__netcode_Init
@@ -6612,6 +6623,79 @@ Func __netcode_Shutdown()
 	$__net_bNetcodeStarted = False
 
 	__Trace_FuncOut("__netcode_Shutdown")
+EndFunc
+
+Func __netcode_UDFVersionCheck(Const $sVersionFileURL, Const $sOfficialRepoURL, Const $sOfficialRepoChangelogURL, Const $sUDFName, Const $sCurrentVersion)
+
+	; no version check if the script is compiled
+	If @Compiled Then Return
+
+	; if disabled then return
+	if Not $__net_bCheckForUDFUpdate Then Return
+
+	; only a single check per day
+	Local $sHKCUPath = $__net_sNetcodeHKCUPath
+	Local $sCurrentDate = @MDAY & '/' & @MON & '/' & @YEAR
+
+	; read latest check date
+	Local $sDate = RegRead($sHKCUPath, $sUDFName & '_lastcheck')
+
+	; if never checked before
+	if @error Then
+		; then write the current date
+		RegWrite($sHKCUPath, $sUDFName & '_lastcheck', "REG_SZ", $sCurrentDate)
+	EndIf
+
+	; if we already checked the version at this day then
+	if $sDate = $sCurrentDate Then
+
+		; read if there was a new version
+		Local $sVersion = RegRead($sHKCUPath, $sUDFName & '_latestversion')
+
+		; if not then return
+		if @error Then Return
+
+		; if its the same as the latest then return
+		If $sCurrentVersion = $sVersion Then Return
+
+		; if not then log a info
+		ConsoleWrite(@CRLF)
+		ConsoleWrite('+ New "' & $sUDFName & '" Version available v' & $sVersion & @CRLF)
+		ConsoleWrite("  You are running version v" & $sCurrentVersion & @CRLF)
+		ConsoleWrite("  Latest Version can be found here: " & $sOfficialRepoURL & @CRLF)
+		ConsoleWrite("  Changelog is here: " & $sOfficialRepoChangelogURL & @CRLF)
+		ConsoleWrite("  You can disable the Version check by setting $__net_bCheckForUDFUpdate to False" & @CRLF)
+		ConsoleWrite("  Have a nice day! (:" & @CRLF)
+		ConsoleWrite(@CRLF)
+
+		Return
+	EndIf
+
+	; write to reg that we are running a check
+	RegWrite($sHKCUPath, $sUDFName & '_lastcheck', "REG_SZ", $sCurrentDate)
+
+	; read latest version from version url using https
+	Local $sVersion = InetRead($sVersionFileURL, 1)
+
+	; if it failed then just return
+	If @error Then Return
+
+	; convert to string
+	$sVersion = BinaryToString($sVersion)
+
+	; cut LF and CRLF if present
+	$sVersion = StringReplace($sVersion, @LF, "")
+	$sVersion = StringReplace($sVersion, @CRLF, "")
+
+	; if the current version is the latest then return
+	if $sCurrentVersion = $sVersion Then Return
+
+	; if not then write that to the reg
+	RegWrite($sHKCUPath, $sUDFName & '_latestversion', "REG_SZ", $sVersion)
+
+	; lastly rerun the func to display a notice
+	Return __netcode_UDFVersionCheck($sVersionFileURL, $sOfficialRepoURL, $sOfficialRepoChangelogURL, $sUDFName, $sCurrentVersion)
+
 EndFunc
 
 ; default string seeding
@@ -6999,6 +7083,74 @@ Func __netcode_SocketSelect($arClients, $bRead = True)
 	Return __Trace_FuncOut("__netcode_SocketSelect", $arRet)
 EndFunc
 
+#cs
+; x32 and x64 compatible
+; 0 = Read
+; 1 = Write
+; 2 = exceptfds
+Func __netcode_SocketSelect_2($arClients, $nMode = 0)
+	__Trace_FuncIn("__netcode_SocketSelect")
+	Local $nArSize = UBound($arClients)
+	Local $tFD_SET, $tTIMEVAL
+	Local $arRet[0]
+
+	; creating fd_set and timeval structs
+	if @AutoItX64 Then ; structs need to be created with different var types for x32 and x64.
+		$tFD_SET = DllStructCreate("int64 fd_count;int64 fd_array[" & $nArSize & "]")
+		$tTIMEVAL = DllStructCreate("int64;int64")
+	Else
+		$tFD_SET = DllStructCreate("int fd_count;int fd_array[" & $nArSize & "]")
+		$tTIMEVAL = DllStructCreate("int;int")
+	EndIf
+
+	; setting fd_count to the amount of socket to be checked and timevals to 0 sec and ms
+	DllStructSetData($tFD_SET, "fd_count", $nArSize)
+    DllStructSetData($tTIMEVAL, 1, 0) ; tv_sec
+    DllStructSetData($tTIMEVAL, 2, 0) ; tv_usec
+
+	; filling the fd_set struct with the client sockets
+	For $i = 0 To $nArSize - 1
+		DllStructSetData($tFD_SET, "fd_array", $arClients[$i], $i + 1)
+	Next
+
+	; if we want to filter for the sockets that have something in the receive buffer or if we want to filter for the sockets that can send something
+	Switch $nMode
+
+		Case 0
+			$arRet = DllCall($__net_hWs2_32, 'int', 'select', 'int', 0, 'ptr', DllStructGetPtr($tFD_SET), 'ptr', 0, 'ptr', 0, 'ptr', DllStructGetPtr($tTIMEVAL))
+
+		Case 1
+			$arRet = DllCall($__net_hWs2_32, 'int', 'select', 'int', 0, 'ptr', 0, 'ptr', DllStructGetPtr($tFD_SET), 'ptr', 0, 'ptr', DllStructGetPtr($tTIMEVAL))
+
+		Case 2
+			$arRet = DllCall($__net_hWs2_32, 'int', 'select', 'int', 0, 'ptr', 0, 'ptr', 0, 'ptr', DllStructGetPtr($tFD_SET), 'ptr', DllStructGetPtr($tTIMEVAL))
+
+	EndSwitch
+
+	_ArrayDisplay($arRet, $nMode)
+
+
+	; if the call failed. A fail can be -1 and 0. If its -1 then there also is an error retrievable with WSAGetLastError.
+	if $arRet[0] = -1 Then
+		__Trace_Error(__netcode_WSAGetLastError(), 0, "Select error")
+		Return __Trace_FuncOut("__netcode_SocketSelect")
+	ElseIf $arRet[0] = 0 Then
+		Return __Trace_FuncOut("__netcode_SocketSelect")
+	EndIf
+
+	; redim the array with the amount of filtered sockets
+	ReDim $arRet[DllStructGetData($tFD_SET, "fd_count")]
+
+	; get the filtered sockets out of the struct
+	For $i = 1 To UBound($arRet)
+		$arRet[$i - 1] = DllStructGetData($tFD_SET, "fd_array", $i)
+	Next
+
+	; return the filtered sockets
+	Return __Trace_FuncOut("__netcode_SocketSelect", $arRet)
+EndFunc
+#ce
+
 ; this func has some weird issue with WSAGetLastError returning error 1400, yes 1400 not 10040. The Error table doesnt reveal anything, google dont too.
 ; i dont know what the heck it means.
 ; marked for recoding. i have to find the best way to use send() or wsasend()
@@ -7066,6 +7218,7 @@ Func __netcode_TCPRecv(Const $hSocket)
 	__Trace_FuncIn("__netcode_TCPRecv", $hSocket)
 
 	Local $nError = 0
+;~ 	Local $tRecvBuffer = DllStructCreate("char[" & 65536 & "]")
 	Local $tRecvBuffer = DllStructCreate("byte[" & 65536 & "]")
 
 	; every socket is already non blocking, but recv still blocks occassionally which is very bad. So i reset to non blockig mode
@@ -7096,6 +7249,7 @@ Func __netcode_TCPRecv(Const $hSocket)
 
 	__Trace_FuncOut("__netcode_TCPRecv")
 	Return SetError(0, $arRet[0], BinaryMid(DllStructGetData($tRecvBuffer, 1), 1, $arRet[0]))
+;~ 	Return SetError(0, $arRet[0], StringMid(DllStructGetData($tRecvBuffer, 1), 1, $arRet[0]))
 EndFunc
 
 #Region ===========================================================================================================================

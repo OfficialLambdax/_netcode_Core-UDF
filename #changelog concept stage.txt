@@ -1,3 +1,22 @@
+31.01.2022 (DD/MM/YYYY) 0.1.5.25
+
+	Added
+		- __netcode_UDFVersionCheck() which checks if there is a update to the currently used UDF.
+		And then logs a notice to the console. This check is only performed once a day and only if the script is
+		not compiled. This feature can be entirely deactivated by setting $__net_bCheckForUDFUpdate to False in the UDF header.
+		
+		In order for the UDF to check if a version check has already run at the day, the UDF has to know that somehow.
+		In this case it writes the latest check date and result to the registry at "HKEY_CURRENT_USER\SOFTWARE\_netcode_UDF"
+		
+		The values in there can safely be deleted at any time.
+		
+		The function is being called once _netcode_Startup() is called.
+		
+		This feature was implemented because i guess other users, like me, dont really check if any of the downloaded UDF's
+		had updates to them. And since this UDF is still under construction and some maybe already using it, it might be best
+		to let them know that a update is available which might brought bug fixes, improvements and new features.
+
+
 27.01.2022 (DD/MM/YYYY) 0.1.5.24
 
 	Fixed
