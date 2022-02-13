@@ -28,6 +28,8 @@ features that wouldnt work with the default functions.
 
 Additional information can be read within the Concept Plan.
 
+Required libaries
+The _storageS-UDF from https://github.com/OfficialLambdax/_storageS-UDF
 
 There are also addons
 

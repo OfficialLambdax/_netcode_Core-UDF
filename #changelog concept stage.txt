@@ -1,3 +1,18 @@
+12.02.2022 (DD/MM/YYYY) 0.1.5.26
+
+	Mayor Update with little impact. No script changes need to be done.
+	This Version is compatible down to version 0.1.5.22.
+
+	Changed
+		- Excluded the included _storageS UDF. The UDF became public and can be found here
+		https://github.com/OfficialLambdax/_storageS-UDF
+		The _storageS UDF is required for _netcode_Core.au3.
+		The UDF also got optimised. The optimisation focused the improvement of the socket creation and deletion time.
+		
+	Added
+		- A new performance example named "connect and stage time requirement"
+
+
 31.01.2022 (DD/MM/YYYY) 0.1.5.25
 
 	Added
