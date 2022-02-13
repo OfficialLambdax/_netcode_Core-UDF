@@ -75,12 +75,12 @@ Func _Event_Connection(Const $hSocket, $sStage)
 	_netcode_SocketSetVar($hSocket, 'Picture', $fPicture)
 
 	; store socket to buttons
-	_storageS_Overwrite($fbToggle, '_GUI_Socket', $hSocket)
-	_storageS_Overwrite($fbDisconnect, '_GUI_Socket', $hSocket)
+	_storageG_Overwrite($fbToggle, '_GUI_Socket', $hSocket)
+	_storageG_Overwrite($fbDisconnect, '_GUI_Socket', $hSocket)
 
 	; store button types
-	_storageS_Overwrite($fbToggle, '_GUICTRL_Type', "Toggle")
-	_storageS_Overwrite($fbDisconnect, '_GUICTRL_Type', "Disconnect")
+	_storageG_Overwrite($fbToggle, '_GUICTRL_Type', "Toggle")
+	_storageG_Overwrite($fbDisconnect, '_GUICTRL_Type', "Disconnect")
 
 	; register gui events
 	GUICtrlSetOnEvent($fbToggle, "_GuiEvent_ButtonPress")
@@ -108,9 +108,9 @@ EndFunc
 Func _GuiEvent_ButtonPress()
 
 	Local $hPressedControl = @GUI_CtrlId
-	Local $hSocket = _storageS_Read($hPressedControl, '_GUI_Socket')
+	Local $hSocket = _storageG_Read($hPressedControl, '_GUI_Socket')
 
-	Switch _storageS_Read($hPressedControl, '_GUICTRL_Type')
+	Switch _storageG_Read($hPressedControl, '_GUICTRL_Type')
 
 		Case "Toggle"
 			_netcode_TCPSend($hSocket, 'Toggle')
