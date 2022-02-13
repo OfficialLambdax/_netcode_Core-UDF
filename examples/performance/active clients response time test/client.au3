@@ -16,7 +16,7 @@ Global $__sServerIP = "127.0.0.1"
 Global $__nServerPort = 1225
 
 ; set how many clients to connect
-Global $__nSocketAmount = 100
+Global $__nSocketAmount = 1000
 
 ; internal
 Global $__arClients[$__nSocketAmount][2] ; socket | timer handle
@@ -40,7 +40,7 @@ For $i = 0 To $__nSocketAmount - 1
 	_netcode_SetEvent($__arClients[$i][0], 'postdata', "_Event_GotData")
 
 	; add index to storage
-	_storageS_Overwrite($__arClients[$i][0], '_ArrayIndex', $i)
+	_storageG_Overwrite($__arClients[$i][0], '_ArrayIndex', $i)
 Next
 
 ; request data for each and every socket and start a timer
@@ -60,7 +60,7 @@ WEnd
 
 ; the server responded, now check how long it took with all sockets beging active
 Func _Event_GotData(Const $hSocket, $sData)
-	Local $nIndex = _storageS_Read($hSocket, '_ArrayIndex')
+	Local $nIndex = _storageG_Read($hSocket, '_ArrayIndex')
 
 	ConsoleWrite($hSocket & " Data Request took " & Round(TimerDiff($__arClients[$nIndex][1]), 2) & " ms" & @CRLF)
 
