@@ -27,7 +27,7 @@ Global $__bDenyOverwritingOfExistingFiles = False
 ; =========================================================================
 ; Init
 
-Local $sPrivateKey = "%privatekey%"
+Local $sPrivateKey = "UlNBMgAIAAADAAAAAAEAAIAAAACAAAAAAQAB0FdtG5glD2+Hy559w1GRiToFTqkP0arWvG/zMvOqa+fFQiFxHSqXZqlUQEB5/oranE/RTSCGiCLTur159Afv+xQC9ET64dB5Rq7y6Ppw0z0qzjCD80eXPVkmxPGtkBTpYGW5LAt7NN9r7a6A/V/nBDf6aYiR2m6BEUnGHmlnyfAjG46bGF+AEC+/Q9BvD2CjfRsExWSj07Scbpmm7UZ1ooV5fp9VTQdwmCypdRzH+gTHqz5bGjP7x6GC/h4s2SGyRG658V/UoBbxN+SotyBenJRqAj6AtbWjlyFkeS6diDsPYLoOm77TwTRjvPOx6XQ2jKUmxsWX2xZRGGDPskD1ddG/9FSdLUVLwDHtyNJqk98FdOoqBda3zunERKIvdczBU8RR3CTt5EJWSCMVrvv7SYD7rXdvHJyPJ8NHmhR6Y36fChDzUbKMWfvlBHmbJBixr0Wwv/+aTXxf0SCEpCAPd5bGYHHDyAiVlWCg8pYwdK6GGe/Zd2CuBflVGILdmnyn/kf5h6+Sr+joD41jJK1tn9BgTWC6l5lGRWvUm6vXL3uMCAOoP37b7tFzI29eq1cFne2mz4CQyQmXgmYMdecCIGHwdYo2UJUjWowBvQ2lgF2AQS2dtoyAi8uNkGVx1jkulbNG1KSJx53IzmldeoLlGkfb0b6ReZNTl+qg/P/89IM="
 
 if $sPrivateKey == "%privatekey%" Then
 	Exit MsgBox(48, "Server Error", "Private key is not set yet")
@@ -40,8 +40,8 @@ $arKeys[0] = StringToBinary($sPrivateKey)
 ; startup netcode
 _netcode_Startup()
 
-; if the script is not compiled then activate the tracer to catch errors that might come up while developing
-If Not @Compiled Then $__net_bTraceEnable = True
+; if the script is compiled then deactivate the tracer
+If @Compiled Then $__net_bTraceEnable = False
 
 ; create storage directory if it doesnt exist yet
 if Not FileExists($__sfDownloadPath) Then DirCreate($__sfDownloadPath)

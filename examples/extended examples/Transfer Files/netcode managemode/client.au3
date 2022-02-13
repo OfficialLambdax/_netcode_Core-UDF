@@ -22,7 +22,7 @@ Local $arErrors[0][2]
 Local $nArSize = 0
 Local $rMsgBox = 0
 Local $nError = 0
-Local $sPublicKey = "%publickey%"
+Local $sPublicKey = "UlNBMQAIAAADAAAAAAEAAAAAAAAAAAAAAQAB0FdtG5glD2+Hy559w1GRiToFTqkP0arWvG/zMvOqa+fFQiFxHSqXZqlUQEB5/oranE/RTSCGiCLTur159Afv+xQC9ET64dB5Rq7y6Ppw0z0qzjCD80eXPVkmxPGtkBTpYGW5LAt7NN9r7a6A/V/nBDf6aYiR2m6BEUnGHmlnyfAjG46bGF+AEC+/Q9BvD2CjfRsExWSj07Scbpmm7UZ1ooV5fp9VTQdwmCypdRzH+gTHqz5bGjP7x6GC/h4s2SGyRG658V/UoBbxN+SotyBenJRqAj6AtbWjlyFkeS6diDsPYLoOm77TwTRjvPOx6XQ2jKUmxsWX2xZRGGDPskD1dQ=="
 
 If $sPublicKey == "%publickey%" Then
 	Exit MsgBox(48, "Client Error", "Public key not set yet")
@@ -30,7 +30,7 @@ EndIf
 
 _netcode_Startup()
 
-If Not @Compiled Then $__net_bTraceEnable = True
+If @Compiled Then $__net_bTraceEnable = False
 
 Global $__hMyConnectClient = _netcode_TCPConnect($__sConnectToIP, $__sConnectToPort, True)
 if Not $__hMyConnectClient Then Exit MsgBox(16, "Client Error", "Cannot Connect to Server")
@@ -67,6 +67,8 @@ While True
 		$__arFiles = _RecursiveFileListToArray($__sfFolderPath, '', 0)
 
 	ElseIf $rMsgBox = 7 Then ; if single file select
+
+		$__bFolderUpload = False
 
 		ReDim $__arFiles[2]
 		$__arFiles[0] = 1
