@@ -1,6 +1,8 @@
 # _netcode_Core-UDF
 a extended event based TCP/IP (IPv4/6) libary for Autoit3 (Support for Win XP, Vista, 7, 8, 8.1, 10 and Linux - X32 and X64 - Autoit Stable and Beta)
 
+! AutoIt v3.3.16.0 and Beta v3.3.15.5 does not work, duo to a bug with SRandom() !
+
 First of all. This Libary (commonly referred as UDF for User Defined Functions) is neither yet Alpha nor Beta or Stable. The libary is still in its Concept Creation Phase. This means that features are missing eg. IPv6, TLS, Double Ratchet and that already included systems and features require complete overhauls. If you are going to use this UDF then expect alot of script breaking changes with updates and incomaptibilities wih older versions. In such a event the changelog will provide information about that and what to change. Also, because of the amount of changes that still need to be made, the UDF has no documentation yet.
 
 If you already worked with event based libaries then it should be easy to get into this libary. And you can get a basic understanding on how to use this UDF from the variety of examples in the examples folder.
