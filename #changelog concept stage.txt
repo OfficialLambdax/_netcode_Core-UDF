@@ -1,3 +1,18 @@
+07.03.2022 (DD/MM/YYYY) 0.1.5.27
+
+	THIS VERSION IS INCOMPATIBLE WITH ALL PREVIOUS VERSIONS
+	
+	Compatibilty Patch for Autoit Stable v3.3.16.0 and Beta v3.3.15.5
+	Both Autoit Versions changed the workings of SRandom(), which made the previous implementation no longer working.
+	
+	Requires _storageS_UDF v0.1.5.3 or later.
+	
+	Changed
+		- From _storageG to _storageGO
+		This change also changed the overall speed of the UDF, but that in favor for a much longer runtime.
+
+
+
 12.02.2022 (DD/MM/YYYY) 0.1.5.26
 
 	Mayor Update with little impact. No script changes need to be done.

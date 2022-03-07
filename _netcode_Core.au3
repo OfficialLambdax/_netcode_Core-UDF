@@ -290,7 +290,7 @@ Global $__net_nDefaultRecvLen = 1048576 * 0.25 ; has to be smaller then $__net_n
 Global $__net_nTCPRecvBufferEmptyTimeout = 20 ; ms
 
 ; Set default Seed. Ignore for now, it is not fully implemented yet
-Global $__net_nNetcodeStringDefaultSeed = Number("50853881441621333029") ; %NotSet% - numbers only - note change to Double
+Global $__net_nNetcodeStringDefaultSeed = 9223372036854775807 ; %NotSet% - numbers only - note keep it Int (32/64)
 
 ; set to True if you want the _netcode_sParam() to binarize all data. Will slow down the function by alot.
 Global $__net_bParamSplitBinary = False
@@ -370,7 +370,7 @@ Global Const $__net_sInt_SHACryptionAlgorithm = 'SHA256'
 Global Const $__net_vInt_RSAEncPadding = 0x00000002
 Global Const $__net_sInt_CryptionIV = Binary("0x000102030405060708090A0B0C0D0E0F") ; i have to research this topic
 Global Const $__net_sInt_CryptionProvider = 'Microsoft Primitive Provider' ; and this
-Global Const $__net_sNetcodeVersion = "0.1.5.26"
+Global Const $__net_sNetcodeVersion = "0.1.5.27"
 Global Const $__net_sNetcodeVersionBranch = "Concept Development" ; Concept Development | Early Alpha | Late Alpha | Early Beta | Late Beta
 Global Const $__net_sNetcodeOfficialRepositoryURL = "https://github.com/OfficialLambdax/_netcode_Core-UDF"
 Global Const $__net_sNetcodeOfficialRepositoryChangelogURL = "https://github.com/OfficialLambdax/_netcode_Core-UDF/blob/main/%23changelog%20concept%20stage.txt"
@@ -542,7 +542,7 @@ EndFunc   ;==>_netcode_Loop
 ; ===============================================================================================================================
 Func _netcode_RecvManageExecute(Const $hSocket, $hParentSocket = False)
 	__Trace_FuncIn("_netcode_RecvManageExecute", $hSocket, $hParentSocket)
-	If _storageG_Read($hSocket, '_netcode_SocketIsListener') Then Return SetError(1, 0, False)
+	If _storageGO_Read($hSocket, '_netcode_SocketIsListener') Then Return SetError(1, 0, False)
 	If Not $hParentSocket Then $hParentSocket = __netcode_ClientGetParent($hSocket)
 
 	; recv packages
@@ -653,7 +653,7 @@ Func _netcode_TCPDisconnectWhenReady(Const $hSocket, $nTimeout = 10000)
 				if TimerDiff($hTimer) > $nTimeout Then ExitLoop
 
 				; check safetbuffersize
-				if Number(_storageG_Read($hSocket, '_netcode_SafetyBufferSize')) = 0 Then ExitLoop
+				if Number(_storageGO_Read($hSocket, '_netcode_SafetyBufferSize')) = 0 Then ExitLoop
 
 				; try to catch 'netcode_internal' packets
 				_netcode_RecvManageExecute($hSocket)
@@ -750,6 +750,9 @@ Func _netcode_TCPConnect($sIP, $vPort, $bDontAuthAsNetcode = False, $sUsername =
 			Return SetError($nError, 0, __Trace_FuncOut("_netcode_TCPConnect", False))
 		EndIf
 
+		; create group
+		_storageGO_CreateGroup($hSocket)
+
 		; save ip, port, username and password
 		__netcode_SocketSetIPAndPort($hSocket, $sIP, $vPort)
 		__netcode_SocketSetUsernameAndPassword($hSocket, $sUsername, $sPassword)
@@ -831,7 +834,7 @@ Func _netcode_AuthToNetcodeServer(Const $hSocket, $sUsername = "", $sPassword = 
 
 	; if the socket is pending then set the dont auth to netcode toggle to False
 	If __netcode_CheckSocket($hSocket) = 3 Then
-		_storageG_Overwrite($hSocket, '_netcode_DontAuthAsNetcode', False)
+		_storageGO_Overwrite($hSocket, '_netcode_DontAuthAsNetcode', False)
 	Else
 		; otherwie trigger the first stage now
 		__netcode_ManageAuth($hSocket, Null)
@@ -934,7 +937,7 @@ EndFunc
 Func _netcode_StageGetError($hSocket, $sStageName = "")
 	if $sStageName = "" Then $sStageName = _netcode_GetCurrentStageName($hSocket)
 
-	Local $arData = _storageG_Read($hSocket, '_netcode_StageErrAndExt_' & $sStageName)
+	Local $arData = _storageGO_Read($hSocket, '_netcode_StageErrAndExt_' & $sStageName)
 	if Not IsArray($arData) Then Return -1 ; stage hasnt run, could indicate that a disconnect happened before
 
 	Return $arData[0]
@@ -977,7 +980,7 @@ EndFunc
 Func _netcode_StageGetExtended($hSocket, $sStageName = "")
 	if $sStageName = "" Then $sStageName = _netcode_GetCurrentStageName($hSocket)
 
-	Local $arData = _storageG_Read($hSocket, '_netcode_StageErrAndExt_' & $sStageName)
+	Local $arData = _storageGO_Read($hSocket, '_netcode_StageErrAndExt_' & $sStageName)
 	if Not IsArray($arData) Then Return -1 ; stage hasnt run, could indicate that a disconnect happened before
 
 	Return $arData[1]
@@ -1269,7 +1272,7 @@ EndFunc
 Func _netcode_StageGetExtraInformation($hSocket, $sStageName = "")
 	if $sStageName = "" Then $sStageName = _netcode_GetCurrentStageName($hSocket)
 
-	Local $sData = _storageG_Read($hSocket, '_netcode_StageExtraInfo_' & $sStageName)
+	Local $sData = _storageGO_Read($hSocket, '_netcode_StageExtraInfo_' & $sStageName)
 	if $sData == False Then Return ""
 
 	Return $sData
@@ -1329,7 +1332,7 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 	; check the managemode the socket is in
 	If __netcode_SocketGetManageMode($hSocket) <> 10 Then
 
-		Local $arBuffer = _storageG_Read($hSocket, '_netcode_PreNetcodeSendBuffer')
+		Local $arBuffer = _storageGO_Read($hSocket, '_netcode_PreNetcodeSendBuffer')
 		if Not IsArray($arBuffer) Then
 			Local $arBuffer[0][3]
 		EndIf
@@ -1340,7 +1343,7 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 		$arBuffer[$nArSize][1] = $sData
 		$arBuffer[$nArSize][2] = $bWaitForFloodPrevention
 
-		_storageG_Overwrite($hSocket, '_netcode_PreNetcodeSendBuffer', $arBuffer)
+		_storageGO_Overwrite($hSocket, '_netcode_PreNetcodeSendBuffer', $arBuffer)
 
 		; trigger a warn info
 		; ~ todo
@@ -1392,7 +1395,7 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 				EndIf
 
 				; check if the latest packet id changed
-				if _storageG_Read($hSocket, '_netcode_SafetyBufferIndex') <> $sID Then
+				if _storageGO_Read($hSocket, '_netcode_SafetyBufferIndex') <> $sID Then
 
 					; create new package with new packet id
 					$sPackage = __netcode_CreatePackage($hSocket, $sEvent, $sData)
@@ -1405,7 +1408,7 @@ Func _netcode_TCPSend(Const $hSocket, $sEvent, $sData = '', $bWaitForFloodPreven
 				EndIf
 
 				; check if enough buffer space is finally available and exitloop if thats the case
-				if Number(_storageG_Read($hSocket, '_netcode_SafetyBufferSize')) + $nLen < $__net_nMaxRecvBufferSize Then
+				if Number(_storageGO_Read($hSocket, '_netcode_SafetyBufferSize')) + $nLen < $__net_nMaxRecvBufferSize Then
 					$nError = 0
 					ExitLoop
 				EndIf
@@ -1712,7 +1715,7 @@ EndFunc
 Func _netcode_SetupSocketLink(Const $hSocket, $sCallback, $nLinkID = Default, $vAdditionalData = False)
 	__Trace_FuncIn("_netcode_SetupSocketLink")
 
-	if _storageG_Read($hSocket, '_netcode_IsLinkClient') Then
+	if _storageGO_Read($hSocket, '_netcode_IsLinkClient') Then
 		__Trace_Error(1, 0, "Link Clients cant be Link Provider")
 		Return SetError(1, 0, __Trace_FuncOut("_netcode_SetupSocketLink", False))
 	EndIf
@@ -1758,14 +1761,14 @@ Func _netcode_SocketLinkSetAdditionalData(Const $hSocket, $nLinkID, $vAdditional
 
 	Local $hNewSocket = 0
 
-	if _storageG_Read($hSocket, '_netcode_IsLinkClient') Then
+	if _storageGO_Read($hSocket, '_netcode_IsLinkClient') Then
 		$hNewSocket = __netcode_SocketGetLinkedSocket($hSocket, $nLinkID)
-		_storageG_Overwrite($hSocket, '_netcode_LinkAdditionalData', $vAdditionalData)
-		_storageG_Overwrite($hNewSocket, '_netcode_LinkAdditionalData' & $nLinkID, $vAdditionalData)
+		_storageGO_Overwrite($hSocket, '_netcode_LinkAdditionalData', $vAdditionalData)
+		_storageGO_Overwrite($hNewSocket, '_netcode_LinkAdditionalData' & $nLinkID, $vAdditionalData)
 	Else
 		$hNewSocket = __netcode_SocketGetLinkedSocket($hSocket, $nLinkID)
-		_storageG_Overwrite($hSocket, '_netcode_LinkAdditionalData' & $nLinkID, $vAdditionalData)
-		_storageG_Overwrite($hNewSocket, '_netcode_LinkAdditionalData', $vAdditionalData)
+		_storageGO_Overwrite($hSocket, '_netcode_LinkAdditionalData' & $nLinkID, $vAdditionalData)
+		_storageGO_Overwrite($hNewSocket, '_netcode_LinkAdditionalData', $vAdditionalData)
 	EndIf
 	__Trace_FuncOut("_netcode_SocketLinkSetAdditionalData")
 EndFunc
@@ -1785,10 +1788,10 @@ EndFunc
 Func _netcode_SocketLinkGetAdditionalData(Const $hSocket, $nLinkID = False)
 	__Trace_FuncIn("_netcode_SocketLinkGetAdditionalData")
 	__Trace_FuncOut("_netcode_SocketLinkGetAdditionalData")
-	if _storageG_Read($hSocket, '_netcode_IsLinkClient') Then
-		Return _storageG_Read($hSocket, '_netcode_LinkAdditionalData')
+	if _storageGO_Read($hSocket, '_netcode_IsLinkClient') Then
+		Return _storageGO_Read($hSocket, '_netcode_LinkAdditionalData')
 	Else
-		Return _storageG_Read($hSocket, '_netcode_LinkAdditionalData' & $nLinkID)
+		Return _storageGO_Read($hSocket, '_netcode_LinkAdditionalData' & $nLinkID)
 	EndIf
 EndFunc
 
@@ -1901,7 +1904,7 @@ EndFunc   ;==>_netcode_GetDefaultPacketContentSize
 Func _netcode_GetDynamicPacketContentSize(Const $hSocket)
 	__Trace_FuncIn("_netcode_GetDynamicPacketContentSize", $hSocket)
 
-	Local $nDynamicSize = _storageG_Read($hSocket, '_netcode_PacketDynamicSize')
+	Local $nDynamicSize = _storageGO_Read($hSocket, '_netcode_PacketDynamicSize')
 
 	if $nDynamicSize = 0 Then
 		Local $nSize = 0
@@ -1959,7 +1962,7 @@ Func _netcode_GetDynamicPacketContentSize(Const $hSocket)
 
 		Until $nSize > _netcode_GetMaxPacketContentSize()
 
-		_storageG_Overwrite($hSocket, '_netcode_PacketDynamicSize', $nBest)
+		_storageGO_Overwrite($hSocket, '_netcode_PacketDynamicSize', $nBest)
 		$nDynamicSize = $nBest
 	EndIf
 
@@ -1992,7 +1995,7 @@ Func _netcode_SocketSetVar(Const $hSocket, $sName, $vData)
 	if __netcode_CheckSocket($hSocket) = 0 Then Return SetError(1, 0, False)
 
 	$sName = StringToBinary('_netcode_custom_' & $sName, 4)
-	_storageG_Overwrite($hSocket, $sName, $vData)
+	_storageGO_Overwrite($hSocket, $sName, $vData)
 
 	Return True
 EndFunc
@@ -2015,7 +2018,7 @@ Func _netcode_SocketGetVar(Const $hSocket, $sName)
 	if __netcode_CheckSocket($hSocket) = 0 Then Return SetError(1, 0, Null)
 
 	$sName = StringToBinary('_netcode_custom_' & $sName, 4)
-	Local $sData = _storageG_Read($hSocket, $sName)
+	Local $sData = _storageGO_Read($hSocket, $sName)
 
 	if @error Then Return SetError(1, 0, Null)
 	Return $sData
@@ -2097,8 +2100,8 @@ EndFunc
 ; Example .......: No
 ; ===============================================================================================================================
 Func _netcode_GetEventData(Const $hSocket, $sName)
-	Local $sData = _storageG_Read($hSocket, '_netcode_Event' & StringToBinary($sName) & '_Data')
-	_storageG_Overwrite($hSocket, '_netcode_Event' & StringToBinary($sName) & '_Data', "")
+	Local $sData = _storageGO_Read($hSocket, '_netcode_Event' & StringToBinary($sName) & '_Data')
+	_storageGO_Overwrite($hSocket, '_netcode_Event' & StringToBinary($sName) & '_Data', "")
 
 	Return $sData
 EndFunc
@@ -2171,8 +2174,8 @@ Func _netcode_SetEvent(Const $hSocket, $sName, $sCallback = "", $bSet = True)
 		$arEvents[$nArSize] = $sName
 
 		; create storage var for faster event checking and store the set callback to it
-		_storageG_Overwrite($hSocket, '_netcode_Event' & $sName, $sCallback)
-		if $sCallback = "" Then _storageG_Overwrite($hSocket, '_netcode_Event' & $sName & '_Data', "")
+		_storageGO_Overwrite($hSocket, '_netcode_Event' & $sName, $sCallback)
+		if $sCallback = "" Then _storageGO_Overwrite($hSocket, '_netcode_Event' & $sName & '_Data', "")
 		__netcode_SocketSetEvents($hSocket, $arEvents)
 
 		Return __Trace_FuncOut("_netcode_SetEvent", True)
@@ -2190,7 +2193,7 @@ Func _netcode_SetEvent(Const $hSocket, $sName, $sCallback = "", $bSet = True)
 		ReDim $arEvents[$nArSize - 1]
 
 		; remove callback from storage
-		_storageG_Overwrite($hSocket, '_netcode_Event' & $sName, False)
+		_storageGO_Overwrite($hSocket, '_netcode_Event' & $sName, False)
 		__netcode_SocketSetEvents($hSocket, $arEvents)
 
 		Return __Trace_FuncOut("_netcode_SetEvent", True)
@@ -2247,7 +2250,7 @@ EndFunc   ;==>_netcode_SetEventOnAll
 ; ===============================================================================================================================
 Func _netcode_SetEventOnAllWithParent(Const $hSocket, $sName, $sCallback, $bSet = True)
 	__Trace_FuncIn("_netcode_SetEventOnAllWithParent", $hSocket, $sName, $sCallback, $bSet)
-	If Not _storageG_Read($hSocket, '_netcode_SocketIsListener') Then
+	If Not _storageGO_Read($hSocket, '_netcode_SocketIsListener') Then
 		__Trace_Error(1, 0, "Client socket given, but Parent socket required")
 		Return SetError(1, 0, __Trace_FuncOut("_netcode_SetEventOnAllWithParent", False)) ; this func is only for parent sockets
 	EndIf
@@ -2332,7 +2335,7 @@ Func _netcode_PresetEvent($sName, $sCallback, $bSet = True)
 		$__net_arDefaultEventsForEachNewClientSocket[$nArSize][0] = $sName
 		$__net_arDefaultEventsForEachNewClientSocket[$nArSize][1] = $sCallback
 
-		_storageG_Overwrite('Internal', '_netcode_DefaultEvent' & $sName, $sCallback)
+		_storageGO_Overwrite('Internal', '_netcode_DefaultEvent' & $sName, $sCallback)
 
 		Return __Trace_FuncOut("_netcode_PresetEvent", True)
 
@@ -2347,7 +2350,7 @@ Func _netcode_PresetEvent($sName, $sCallback, $bSet = True)
 		$__net_arDefaultEventsForEachNewClientSocket[$nIndex][1] = $__net_arDefaultEventsForEachNewClientSocket[$nArSize - 1][1]
 		ReDim $__net_arDefaultEventsForEachNewClientSocket[$nArSize - 1][2]
 
-		_storageG_Overwrite('Internal', '_netcode_DefaultEvent' & $sName, False)
+		_storageGO_Overwrite('Internal', '_netcode_DefaultEvent' & $sName, False)
 
 		Return __Trace_FuncOut("_netcode_PresetEvent", True)
 
@@ -2362,7 +2365,7 @@ EndFunc   ;==>_netcode_PresetEvent
 Func _netcode_PresetEventWithParent(Const $hSocket, $sName, $sCallback, $bSet = True)
 	__Trace_FuncIn("_netcode_PresetEventWithParent", $hSocket, $sName, $sCallback, $bSet)
 
-	If Not _storageG_Read($hSocket, '_netcode_SocketIsListener') Then
+	If Not _storageGO_Read($hSocket, '_netcode_SocketIsListener') Then
 		__Trace_Error(1, 0, "This function can only be used for a parent socket", "", $hSocket)
 		Return SetError(1, 0, __Trace_FuncOut("_netcode_PresetEventWithParent", False)) ; this func is only for parent sockets
 	EndIf
@@ -2392,7 +2395,7 @@ Func _netcode_PresetEventWithParent(Const $hSocket, $sName, $sCallback, $bSet = 
 		$arEvents[$nArSize] = $sName
 
 		; each new client is then set with these Events on Connect
-		_storageG_Overwrite($hSocket, '_netcode_Event' & $sName, $sCallback)
+		_storageGO_Overwrite($hSocket, '_netcode_Event' & $sName, $sCallback)
 
 		__netcode_SocketSetEvents($hSocket, $arEvents)
 		Return __Trace_FuncOut("_netcode_PresetEventWithParent", True)
@@ -2407,7 +2410,7 @@ Func _netcode_PresetEventWithParent(Const $hSocket, $sName, $sCallback, $bSet = 
 		$arEvents[$nIndex] = $arEvents[$nArSize - 1]
 		ReDim $arEvents[$nArSize - 1]
 
-		_storageG_Overwrite($hSocket, '_netcode_Event' & $sName, False)
+		_storageGO_Overwrite($hSocket, '_netcode_Event' & $sName, False)
 
 		__netcode_SocketSetEvents($hSocket, $arEvents)
 		Return __Trace_FuncOut("_netcode_PresetEventWithParent", True)
@@ -2484,7 +2487,7 @@ EndFunc   ;==>_netcode_SetGlobalIPList
 ; ===============================================================================================================================
 Func _netcode_SetSocketOnHold(Const $hSocket, $bSet)
 	__Trace_FuncIn("_netcode_SetSocketOnHold", $hSocket, $bSet)
-	_storageG_Overwrite($hSocket, '_netcode_SocketExecutionOnHold', $bSet)
+	_storageGO_Overwrite($hSocket, '_netcode_SocketExecutionOnHold', $bSet)
 	__Trace_FuncOut("_netcode_SetSocketOnHold")
 EndFunc   ;==>_netcode_SetSocketOnHold
 
@@ -2502,7 +2505,7 @@ EndFunc   ;==>_netcode_SetSocketOnHold
 Func _netcode_GetSocketOnHold(Const $hSocket)
 	__Trace_FuncIn("_netcode_GetSocketOnHold", $hSocket)
 	__Trace_FuncOut("_netcode_GetSocketOnHold")
-	Return _storageG_Read($hSocket, '_netcode_SocketExecutionOnHold')
+	Return _storageGO_Read($hSocket, '_netcode_SocketExecutionOnHold')
 EndFunc   ;==>_netcode_GetSocketOnHold
 
 
@@ -2809,11 +2812,11 @@ Func _netcode_SocketSetUserManagement(Const $hSocket, $bSet, $sfDbFilePath, $sfD
 		__Trace_Error(1, 0, "This Func can only be used with a parent")
 		Return SetError(1, 0, __Trace_FuncOut("_netcode_SocketSetUserManagement", False)) ; this isnt a parent
 	EndIf
-	_storageG_Overwrite($hSocket, '_netcode_IsUserManaged', $bSet)
-	_storageG_Overwrite($hSocket, '_netcode_UserDBFile', $sfDbFilePath)
+	_storageGO_Overwrite($hSocket, '_netcode_IsUserManaged', $bSet)
+	_storageGO_Overwrite($hSocket, '_netcode_UserDBFile', $sfDbFilePath)
 
 	If $sfDbPath = "" Then $sfDbPath = StringLeft($sfDbFilePath, StringInStr($sfDbFilePath, '\', 0, -1))
-	_storageG_Overwrite($hSocket, '_netcode_UserDBUserDataPath', $sfDbPath)
+	_storageGO_Overwrite($hSocket, '_netcode_UserDBUserDataPath', $sfDbPath)
 	__Trace_FuncOut("_netcode_SocketSetUserManagement")
 EndFunc   ;==>_netcode_SocketSetUserManagement
 
@@ -2828,11 +2831,11 @@ Func _netcode_SocketGetUserManagement(Const $hSocket)
 		__Trace_Error(1, 0, "This Func can only be used with a parent")
 		Return SetError(1, 0, __Trace_FuncOut("_netcode_SocketGetUserManagement", False)) ; this isnt a parent
 	EndIf
-	If Not _storageG_Read($hSocket, '_netcode_IsUserManaged') Then Return __Trace_FuncOut("_netcode_SocketGetUserManagement", False)
+	If Not _storageGO_Read($hSocket, '_netcode_IsUserManaged') Then Return __Trace_FuncOut("_netcode_SocketGetUserManagement", False)
 
 	Local $arUserDB[2]
-	$arUserDB[0] = _storageG_Read($hSocket, '_netcode_UserDBFile')
-	$arUserDB[1] = _storageG_Read($hSocket, '_netcode_UserDBUserDataPath')
+	$arUserDB[0] = _storageGO_Read($hSocket, '_netcode_UserDBFile')
+	$arUserDB[1] = _storageGO_Read($hSocket, '_netcode_UserDBUserDataPath')
 
 	Return __Trace_FuncOut("_netcode_SocketGetUserManagement", $arUserDB)
 EndFunc   ;==>_netcode_SocketGetUserManagement
@@ -3231,7 +3234,7 @@ Func _netcode_SetOption(Const $hSocket, $sOption, $sData)
 				Return SetError(2, 0, __Trace_FuncOut("_netcode_SetOption", False))
 			EndIf
 
-			_storageG_Overwrite($hSocket, '_netcode_SocketSeed', $sData)
+			_storageGO_Overwrite($hSocket, '_netcode_SocketSeed', $sData)
 
 
 		Case Else
@@ -3353,7 +3356,7 @@ Func __netcode_ExecutePackets(Const $hSocket)
 
 	Local $arPackages = __netcode_SocketGetExecutionBufferValues($hSocket)
 	Local $nCurrentBufferIndex = @error
-	Local $nCurrentIndex = _storageG_Read($hSocket, '_netcode_ExecutionIndex')
+	Local $nCurrentIndex = _storageGO_Read($hSocket, '_netcode_ExecutionIndex')
 	Local $sID = ""
 	Local $nExecutingIndex = 0
 
@@ -3375,7 +3378,7 @@ Func __netcode_ExecutePackets(Const $hSocket)
 		if $nCurrentIndex = 1000 Then $nCurrentIndex = 0
 
 		; update the execution index
-		_storageG_Overwrite($hSocket, '_netcode_ExecutionIndex', $nCurrentIndex)
+		_storageGO_Overwrite($hSocket, '_netcode_ExecutionIndex', $nCurrentIndex)
 
 		; execute event
 		__netcode_ExecuteEvent($hSocket, $arPackages[$nExecutingIndex][0], $arPackages[$nExecutingIndex][1])
@@ -3400,11 +3403,11 @@ EndFunc   ;==>__netcode_ExecutePackets
 
 Func __netcode_SocketSetStageErrorAndExtended(Const $hSocket, $sStageName, $nError = 0 , $nExtended = 0)
 	Local $arData[2] = [$nError,$nExtended]
-	_storageG_Overwrite($hSocket, '_netcode_StageErrAndExt_' & $sStageName, $arData)
+	_storageGO_Overwrite($hSocket, '_netcode_StageErrAndExt_' & $sStageName, $arData)
 EndFunc
 
 Func __netcode_SocketSetStageExtraInformation(Const $hSocket, $sStageName, $vData)
-	_storageG_Overwrite($hSocket, '_netcode_StageExtraInfo_' & $sStageName, $vData)
+	_storageGO_Overwrite($hSocket, '_netcode_StageExtraInfo_' & $sStageName, $vData)
 EndFunc
 
 ; staging system
@@ -3508,10 +3511,10 @@ Func __netcode_SocketSetManageMode(Const $hSocket, $sMode)
 		Return SetError(1, 0, __Trace_FuncOut("__netcode_SocketSetManageMode", False)) ; unknown manage mode
 	EndIf
 
-	_storageG_Overwrite($hSocket, '_netcode_SocketManageMode', Int($nMode))
+	_storageGO_Overwrite($hSocket, '_netcode_SocketManageMode', Int($nMode))
 
 	if $nMode = 10 Then
-		Local $arBuffer = _storageG_Read($hSocket, '_netcode_PreNetcodeSendBuffer')
+		Local $arBuffer = _storageGO_Read($hSocket, '_netcode_PreNetcodeSendBuffer')
 		If IsArray($arBuffer) Then
 
 			Local $nArSize = UBound($arBuffer)
@@ -3522,7 +3525,7 @@ Func __netcode_SocketSetManageMode(Const $hSocket, $sMode)
 				EndIf
 			Next
 
-			_storageG_Overwrite($hSocket, '_netcode_PreNetcodeSendBuffer', Null)
+			_storageGO_Overwrite($hSocket, '_netcode_PreNetcodeSendBuffer', Null)
 		EndIf
 	EndIf
 
@@ -3532,7 +3535,7 @@ EndFunc   ;==>__netcode_SocketSetManageMode
 Func __netcode_SocketGetManageMode(Const $hSocket)
 	__Trace_FuncIn("__netcode_SocketGetManageMode", $hSocket)
 
-	Return __Trace_FuncOut("__netcode_SocketGetManageMode", _storageG_Read($hSocket, '_netcode_SocketManageMode'))
+	Return __Trace_FuncOut("__netcode_SocketGetManageMode", _storageGO_Read($hSocket, '_netcode_SocketManageMode'))
 EndFunc   ;==>__netcode_SocketGetManageMode
 
 ; the connect client uses the socket seed as a preshared key and encrypts the string 'netcode' with it.
@@ -3552,10 +3555,10 @@ Func __netcode_ManageAuth(Const $hSocket, $sPackages)
 		Case 1 ; if accept client
 
 			; create pre handshake key from the seed
-			Local $hPassword = __netcode_AESDeriveKey(_storageG_Read($hSocket, '_netcode_SocketSeed'), 'prehandshake')
+			Local $hPassword = __netcode_AESDeriveKey(_storageGO_Read($hSocket, '_netcode_SocketSeed'), 'prehandshake')
 
 			; set extra info
-			__netcode_SocketSetStageExtraInformation($hSocket, 'auth', _storageG_Read($hSocket, '_netcode_SocketSeed'))
+			__netcode_SocketSetStageExtraInformation($hSocket, 'auth', _storageGO_Read($hSocket, '_netcode_SocketSeed'))
 
 			; check if we can decrypt the package
 			$sPackages = __netcode_AESDecrypt(StringToBinary($sPackages), $hPassword)
@@ -3591,10 +3594,10 @@ Func __netcode_ManageAuth(Const $hSocket, $sPackages)
 		Case 2 ; if connect client
 
 			; create pre handshake key from the seed
-			Local $hPassword = __netcode_AESDeriveKey(_storageG_Read($hSocket, '_netcode_SocketSeed'), 'prehandshake')
+			Local $hPassword = __netcode_AESDeriveKey(_storageGO_Read($hSocket, '_netcode_SocketSeed'), 'prehandshake')
 
 			; set extra info
-			__netcode_SocketSetStageExtraInformation($hSocket, 'auth', _storageG_Read($hSocket, '_netcode_SocketSeed'))
+			__netcode_SocketSetStageExtraInformation($hSocket, 'auth', _storageGO_Read($hSocket, '_netcode_SocketSeed'))
 
 			; store pre handshake key
 			__netcode_SocketSetPacketEncryptionPassword($hSocket, $hPassword)
@@ -3878,7 +3881,7 @@ EndFunc
 Func __netcode_ManageHandshake_SubRandomRSA(Const $hSocket, $nSocketIs, $hPassword, $vData = "")
 	__Trace_FuncIn("__netcode_ManageHandshake_SubRandomRSA", $hSocket, $nSocketIs, "$hPassword", "$vData")
 
-	Local $nSubStage = _storageG_Read($hSocket, '_netcode_handshake_SubRandomRSAStage')
+	Local $nSubStage = _storageGO_Read($hSocket, '_netcode_handshake_SubRandomRSAStage')
 	if $nSubStage == False Then $nSubStage = 0
 
 	Switch $nSocketIs
@@ -3902,7 +3905,7 @@ Func __netcode_ManageHandshake_SubRandomRSA(Const $hSocket, $nSocketIs, $hPasswo
 					__netcode_TCPSend($hSocket, $sData)
 
 					; set next sub stage
-					_storageG_Overwrite($hSocket, '_netcode_handshake_SubRandomRSAStage', 1)
+					_storageGO_Overwrite($hSocket, '_netcode_handshake_SubRandomRSAStage', 1)
 
 					; return Null
 					Return __Trace_FuncOut("__netcode_ManageHandshake_SubRandomRSA", Null)
@@ -3994,7 +3997,7 @@ EndFunc
 
 Func __netcode_ManageHandshake_SubPreSharedAESKey(Const $hSocket, $nSocketIs, $hPassword, $vData = "")
 
-	Local $nSubStage = _storageG_Read($hSocket, '_netcode_handshake_SubPreSharedAESKeyStage')
+	Local $nSubStage = _storageGO_Read($hSocket, '_netcode_handshake_SubPreSharedAESKeyStage')
 	if $nSubStage == False Then $nSubStage = 0
 
 	Switch $nSocketIs
@@ -4007,7 +4010,7 @@ Func __netcode_ManageHandshake_SubPreSharedAESKey(Const $hSocket, $nSocketIs, $h
 					__netcode_TCPSend($hSocket, __netcode_AESEncrypt("PreSharedAESKey", $hPassword))
 
 					; set next sub stage
-					_storageG_Overwrite($hSocket, '_netcode_handshake_SubPreSharedAESKeyStage', 1)
+					_storageGO_Overwrite($hSocket, '_netcode_handshake_SubPreSharedAESKeyStage', 1)
 					Return Null
 
 
@@ -4091,7 +4094,7 @@ EndFunc
 
 Func __netcode_ManageHandshake_SubPreSharedRSASKey(Const $hSocket, $nSocketIs, $hPassword, $vData = "")
 
-	Local $nSubStage = _storageG_Read($hSocket, '_netcode_handshake_SubPreSharedRSAKeyStage')
+	Local $nSubStage = _storageGO_Read($hSocket, '_netcode_handshake_SubPreSharedRSAKeyStage')
 	if $nSubStage == False Then $nSubStage = 0
 
 	Switch $nSocketIs
@@ -4105,7 +4108,7 @@ Func __netcode_ManageHandshake_SubPreSharedRSASKey(Const $hSocket, $nSocketIs, $
 					__netcode_TCPSend($hSocket, __netcode_AESEncrypt("PreSharedRSAKey", $hPassword))
 
 					; set next sub stage
-					_storageG_Overwrite($hSocket, '_netcode_handshake_SubPreSharedRSAKeyStage', 1)
+					_storageGO_Overwrite($hSocket, '_netcode_handshake_SubPreSharedRSAKeyStage', 1)
 					Return Null
 
 				Case 1 ; decrypt the session key
@@ -4228,9 +4231,9 @@ Func __netcode_ManageSyn(Const $hSocket, $sPackages)
 
 			Local $arSynData[5][2]
 			$arSynData[0][0] = "MaxRecvBufferSize"
-			$arSynData[0][1] = _storageG_Read($hSocket, '_netcode_MaxRecvBufferSize')
+			$arSynData[0][1] = _storageGO_Read($hSocket, '_netcode_MaxRecvBufferSize')
 			$arSynData[1][0] = "DefaultRecvLen"
-			$arSynData[1][1] = _storageG_Read($hSocket, '_netcode_DefaultRecvLen')
+			$arSynData[1][1] = _storageGO_Read($hSocket, '_netcode_DefaultRecvLen')
 			$arSynData[2][0] = "Encryption"
 			$arSynData[2][1] = __netcode_SocketGetPacketEncryption(__netcode_ClientGetParent($hSocket))
 			$arSynData[3][0] = "Seed"
@@ -4371,7 +4374,7 @@ Func __netcode_ManageUser(Const $hSocket, $sPackages)
 	Local $hParent = __netcode_ClientGetParent($hSocket)
 	if $hParent == "000" Then $nSocketIs = 2
 
-	Local $nStage = _storageG_Read($hSocket, '_netcode_user_ConnectClientStage')
+	Local $nStage = _storageGO_Read($hSocket, '_netcode_user_ConnectClientStage')
 	if $nStage == False Then $nStage = 0
 
 
@@ -4509,7 +4512,7 @@ Func __netcode_ManageUser(Const $hSocket, $sPackages)
 					__netcode_TCPSend($hSocket, $sData)
 
 					; set next user stage
-					_storageG_Overwrite($hSocket, '_netcode_user_ConnectClientStage', 1)
+					_storageGO_Overwrite($hSocket, '_netcode_user_ConnectClientStage', 1)
 
 					Return __Trace_FuncOut("__netcode_ManageUser")
 
@@ -4616,8 +4619,8 @@ EndFunc
 Func __netcode_ManageNetcode($hSocket, $sPackages)
 	__Trace_FuncIn("__netcode_ManageNetcode", "$sPackages")
 
-	$sPackages = _storageG_Read($hSocket, '_netcode_IncompletePacketBuffer') & $sPackages
-	_storageG_Overwrite($hSocket, '_netcode_IncompletePacketBuffer', "")
+	$sPackages = _storageGO_Read($hSocket, '_netcode_IncompletePacketBuffer') & $sPackages
+	_storageGO_Overwrite($hSocket, '_netcode_IncompletePacketBuffer', "")
 	; if the StringLeft() isnt $__net_sPacketBegin then we may have no netcode packet and have to check if its maybe something socks etc. related
 
 	Local $arPacketStrings = __netcode_SocketGetPacketStrings($hSocket)
@@ -4641,7 +4644,7 @@ Func __netcode_ManageNetcode($hSocket, $sPackages)
 			; if its not the last in the array then the whole recv most probably also is corrupted
 			; ~ todo
 
-			_storageG_Overwrite($hSocket, '_netcode_IncompletePacketBuffer', $sPacketBegin & $arPackages[$i])
+			_storageGO_Overwrite($hSocket, '_netcode_IncompletePacketBuffer', $sPacketBegin & $arPackages[$i])
 ;~ 			MsgBox(0, @ScriptName, $i & @CRLF & $arPackages[0] & @CRLF & @CRLF & StringRight($arPackages[$i], 10))
 ;~ 			_ArrayDisplay($arPackages)
 			ContinueLoop
@@ -4751,17 +4754,17 @@ Func __netcode_AddPacketToQue(Const $hSocket, $sPackage, $nID = False)
 		$__net_arPacketSendQue[$nArSize] = $hSocket
 	EndIf
 
-	_storageG_Append($hSocket, '_netcode_PacketQuo', $sPackage)
+	_storageGO_Append($hSocket, '_netcode_PacketQuo', $sPackage)
 	If $nID == False Then ; if Not $nID == False Then <- does not work If $nID <> False would also be True if $nID = 0. So it had to be done like here
 	Else
-		if Not $__net_bPacketConfirmation Then _storageG_Append($hSocket, '_netcode_PacketQuoIDQuo', $nID & ',')
+		if Not $__net_bPacketConfirmation Then _storageGO_Append($hSocket, '_netcode_PacketQuoIDQuo', $nID & ',')
 	EndIf
 
 	__Trace_FuncOut("__netcode_AddPacketToQue")
 EndFunc   ;==>__netcode_AddPacketToQue
 
-;~ _storageG_Overwrite($hSocket, '_netcode_PacketQuoIDQuo', "")
-;~ _storageG_Overwrite($hSocket, '_netcode_PacketQuoIDWait', "")
+;~ _storageGO_Overwrite($hSocket, '_netcode_PacketQuoIDQuo', "")
+;~ _storageGO_Overwrite($hSocket, '_netcode_PacketQuoIDWait', "")
 ; requires heavy testing to make sure that 'send' doesnt fail
 Func __netcode_SendPacketQuo()
 	__Trace_FuncIn("__netcode_SendPacketQuo")
@@ -4787,14 +4790,14 @@ Func __netcode_SendPacketQuo()
 	For $i = 0 To UBound($arTempSendQuo) - 1
 
 		; send non-blocking
-;~ 		$sData = StringToBinary(_storageG_Read($arTempSendQuo[$i], '_netcode_PacketQuo'), 4) ; Reverted - Fix from 1.5.10
-		$sData = StringToBinary(_storageG_Read($arTempSendQuo[$i], '_netcode_PacketQuo'))
+;~ 		$sData = StringToBinary(_storageGO_Read($arTempSendQuo[$i], '_netcode_PacketQuo'), 4) ; Reverted - Fix from 1.5.10
+		$sData = StringToBinary(_storageGO_Read($arTempSendQuo[$i], '_netcode_PacketQuo'))
 		__netcode_TCPSend($arTempSendQuo[$i], $sData, False)
 		$nError = @error
 
 
 		; empty the packet quo for the socket
-		_storageG_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuo', '')
+		_storageGO_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuo', '')
 
 		; see if the socket is disconnected
 		Switch $nError
@@ -4807,14 +4810,14 @@ Func __netcode_SendPacketQuo()
 				__netcode_SocketSetSendBytesPerSecond($arTempSendQuo[$i], BinaryLen($sData))
 
 				if Not $__net_bPacketConfirmation Then
-					Local $arIDs = StringSplit(_storageG_Read($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo'), ',', 1)
+					Local $arIDs = StringSplit(_storageGO_Read($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo'), ',', 1)
 					For $iS = 1 To $arIDs[0]
 						__netcode_RemoveFromSafetyBuffer($arTempSendQuo[$i], $arIDs[$iS])
 					Next
 				EndIf
 
 				; empty the packet quo for the socket
-;~ 				_storageG_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuo', '')
+;~ 				_storageGO_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuo', '')
 
 			Case 10058
 				; socket got closed but data was still in the send buffer.
@@ -4822,7 +4825,7 @@ Func __netcode_SendPacketQuo()
 
 			Case Else
 				; empty the packet quo for the socket
-;~ 				_storageG_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuo', '')
+;~ 				_storageGO_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuo', '')
 
 				__netcode_SocketSetSendBytesPerSecond($arTempSendQuo[$i], BinaryLen($sData))
 
@@ -4830,8 +4833,8 @@ Func __netcode_SendPacketQuo()
 					ReDim $__net_arPacketSendQueIDWait[UBound($__net_arPacketSendQueIDWait) + 1]
 					$__net_arPacketSendQueIDWait[UBound($__net_arPacketSendQueIDWait) - 1] = $arTempSendQuo[$i]
 
-					_storageG_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoIDWait', _storageG_Read($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo'))
-					_storageG_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo', "")
+					_storageGO_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoIDWait', _storageGO_Read($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo'))
+					_storageGO_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoIDQuo', "")
 				EndIf
 
 		EndSwitch
@@ -4878,7 +4881,7 @@ Func __netcode_SendPacketQuoIDQuerry()
 	Local $bFound = False
 
 	For $i = 0 To UBound($arTempSendQuo) - 1
-		$arIDs = StringSplit(_storageG_Read($arTempSendQuo[$i], '_netcode_PacketQuoIDWait'), ',', 1)
+		$arIDs = StringSplit(_storageGO_Read($arTempSendQuo[$i], '_netcode_PacketQuoIDWait'), ',', 1)
 ;~ 		_ArrayDisplay($arIDs, @ScriptName)
 
 		For $iS = 1 To $arIDs[0]
@@ -4901,7 +4904,7 @@ Func __netcode_SendPacketQuoIDQuerry()
 			Next
 		Until Not $bFound
 
-		_storageG_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoIDWait', '')
+		_storageGO_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoIDWait', '')
 	Next
 EndFunc
 
@@ -4942,7 +4945,7 @@ Func __netcode_SendPacketQuo_Backup()
 			$bDisconnect = False
 
 			; take the last send data and check if 'Send' reports that it is send
-			__netcode_TCPSend($arTempSendQuo[$i], StringToBinary(_storageG_Read($arTempSendQuo[$i], '_netcode_PacketQuoSend')), False)
+			__netcode_TCPSend($arTempSendQuo[$i], StringToBinary(_storageGO_Read($arTempSendQuo[$i], '_netcode_PacketQuoSend')), False)
 			$nError = @error
 			; if it is send then remove the socket from the wait que
 			Switch $nError
@@ -4950,7 +4953,7 @@ Func __netcode_SendPacketQuo_Backup()
 					; nothing
 
 				Case 0, 10050 To 10054
-					_storageG_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoSend', "")
+					_storageGO_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoSend', "")
 
 					; if its the only socket in the list then reset the array
 					if UBound($__net_arPacketSendQueWait) = 1 Then
@@ -4995,12 +4998,12 @@ Func __netcode_SendPacketQuo_Backup()
 			Next
 		EndIf
 
-		$sData = _storageG_Read($arTempSendQuo[$i], '_netcode_PacketQuo')
+		$sData = _storageGO_Read($arTempSendQuo[$i], '_netcode_PacketQuo')
 		__netcode_TCPSend($arTempSendQuo[$i], StringToBinary($sData), False)
 
 		Switch @error
 			Case 10035
-				_storageG_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoSend', $sData)
+				_storageGO_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuoSend', $sData)
 				ReDim $__net_arPacketSendQueWait[UBound($__net_arPacketSendQueWait) + 1]
 				$__net_arPacketSendQueWait[UBound($__net_arPacketSendQueWait) - 1] = $arTempSendQuo[$i]
 
@@ -5009,7 +5012,7 @@ Func __netcode_SendPacketQuo_Backup()
 
 		EndSwitch
 
-		_storageG_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuo', '')
+		_storageGO_Overwrite($arTempSendQuo[$i], '_netcode_PacketQuo', '')
 
 		; remove the socket from the send quo
 
@@ -5051,7 +5054,7 @@ Func __netcode_AddToExecutionBuffer(Const $hSocket, $sID, $sEvent, $sData)
 	Local $arBuffer = __netcode_SocketGetExecutionBufferValues($hSocket)
 	Local $nCurrentBufferIndex = @error
 	Local $nPacketID = Number($sID)
-	Local $nCurrentIndex = _storageG_Read($hSocket, '_netcode_ExecutionIndex')
+	Local $nCurrentIndex = _storageGO_Read($hSocket, '_netcode_ExecutionIndex')
 
 ;~ 	MsgBox(0, @ScriptName, $nPacketID & @CRLF & $nCurrentBufferIndex)
 
@@ -5222,7 +5225,7 @@ EndFunc
 Func __netcode_EventSocketLinkConfirmation(Const $hSocket, $nLinkID)
 	__Trace_FuncIn("__netcode_EventSocketLinkConfirmation")
 	Local $hNewSocket = __netcode_SocketGetLinkedSocket($hSocket, $nLinkID)
-	_storageG_Overwrite($hNewSocket, '_netcode_IsLinkClient', $hSocket)
+	_storageGO_Overwrite($hNewSocket, '_netcode_IsLinkClient', $hSocket)
 
 	; temp
 	_netcode_SocketSetManageMode($hNewSocket, "rawlinked")
@@ -5287,11 +5290,11 @@ Func __netcode_ExecuteEvent(Const $hSocket, $sEvent, $sData = '')
 	EndIf
 
 	; check if event is set. if not check if the event is a default event.
-	Local $sCallback = _storageG_Read($hSocket, '_netcode_Event' & $sEvent)
+	Local $sCallback = _storageGO_Read($hSocket, '_netcode_Event' & $sEvent)
 ;~ 	ConsoleWrite(@TAB & BinaryToString($sEvent) & @TAB & $sCallback & @CRLF)
 	If $sCallback == False Then
 ;~ 	If $sCallback == "" Then
-		$sCallback = _storageG_Read('Internal', '_netcode_DefaultEvent' & $sEvent)
+		$sCallback = _storageGO_Read('Internal', '_netcode_DefaultEvent' & $sEvent)
 		If $sCallback == False Then
 			__Trace_Error(1, 0, 'This Event is unknown: "' & BinaryToString($sEvent) & '"', "", $hSocket, $sEvent)
 			Return SetError(1, 0, __Trace_FuncOut("__netcode_ExecuteEvent", False)) ; this event is neither set / preset nor a default event. the event is completly unknown
@@ -5301,10 +5304,10 @@ Func __netcode_ExecuteEvent(Const $hSocket, $sEvent, $sData = '')
 
 	; if its a non callback event then store the data to the Event
 	if $sCallback = "" Then
-		if _storageG_Read($hSocket, '_netcode_Event' & $sEvent & '_Data') <> "" Then
+		if _storageGO_Read($hSocket, '_netcode_Event' & $sEvent & '_Data') <> "" Then
 			__Trace_Error(6, 0, "Non Callback Event misused. Event data gets overwritten.")
 		EndIf
-		_storageG_Overwrite($hSocket, '_netcode_Event' & $sEvent & '_Data', __netcode_sParams_2_arParams($hSocket, $sData))
+		_storageGO_Overwrite($hSocket, '_netcode_Event' & $sEvent & '_Data', __netcode_sParams_2_arParams($hSocket, $sData))
 		Return __Trace_FuncOut("__netcode_ExecuteEvent")
 	EndIf
 
@@ -5498,7 +5501,7 @@ Func __netcode_CreatePackage(Const $hSocket, $sEvent, $sData)
 	Local $sPacketEnd = $arPacketStrings[2]
 
 	; New packet ID
-	Local $sPacketID = _storageG_Read($hSocket, '_netcode_SafetyBufferIndex')
+	Local $sPacketID = _storageGO_Read($hSocket, '_netcode_SafetyBufferIndex')
 
 	; we no longer want to convert data back to string if the user chooses to give it as binary
 ;~ 	If IsBinary($sData) Then $sData = BinaryToString($sData)
@@ -5529,7 +5532,7 @@ Func __netcode_CreatePackage(Const $hSocket, $sEvent, $sData)
 	Local $nLen = StringLen($sPackage)
 
 	; check if the packet size would exceed the left buffer space
-	If Number(_storageG_Read($hSocket, '_netcode_SafetyBufferSize')) + $nLen > $__net_nMaxRecvBufferSize Then
+	If Number(_storageGO_Read($hSocket, '_netcode_SafetyBufferSize')) + $nLen > $__net_nMaxRecvBufferSize Then
 
 ;~ 		__Trace_Error(1, 0, "Packet is currently to large to be send") ; usuall warning, doesnt need to be shown
 
@@ -5655,18 +5658,18 @@ EndFunc   ;==>__netcode_RecvPackages
 ; z = Return = Array
 Func __netcode_SocketGetSafetyBufferValues(Const $hSocket)
 	__Trace_FuncIn("__netcode_SocketGetSafetyBufferValues", $hSocket)
-	Local $nCurrentIndex = _storageG_Read($hSocket, '_netcode_SafetyBufferIndex')
-	Local $nCurrentSize = _storageG_Read($hSocket, '_netcode_SafetyBufferSize')
+	Local $nCurrentIndex = _storageGO_Read($hSocket, '_netcode_SafetyBufferIndex')
+	Local $nCurrentSize = _storageGO_Read($hSocket, '_netcode_SafetyBufferSize')
 
 	__Trace_FuncOut("__netcode_SocketGetSafetyBufferValues")
-	Return SetError($nCurrentIndex, $nCurrentSize, _storageG_Read($hSocket, '_netcode_SafetyBuffer'))
+	Return SetError($nCurrentIndex, $nCurrentSize, _storageGO_Read($hSocket, '_netcode_SafetyBuffer'))
 EndFunc   ;==>__netcode_SocketGetSafetyBufferValues
 
 Func __netcode_SocketSetSafetyBufferValues(Const $hSocket, $nIndex, $nSize, $arBuffer)
 	__Trace_FuncIn("__netcode_SocketSetSafetyBufferValues", $hSocket, $nIndex, $nSize, "$arBuffer")
-	_storageG_Overwrite($hSocket, '_netcode_SafetyBufferIndex', $nIndex)
-	_storageG_Overwrite($hSocket, '_netcode_SafetyBufferSize', $nSize)
-	_storageG_Overwrite($hSocket, '_netcode_SafetyBuffer', $arBuffer)
+	_storageGO_Overwrite($hSocket, '_netcode_SafetyBufferIndex', $nIndex)
+	_storageGO_Overwrite($hSocket, '_netcode_SafetyBufferSize', $nSize)
+	_storageGO_Overwrite($hSocket, '_netcode_SafetyBuffer', $arBuffer)
 	__Trace_FuncOut("__netcode_SocketSetSafetyBufferValues")
 EndFunc   ;==>__netcode_SocketSetSafetyBufferValues
 
@@ -5675,16 +5678,16 @@ EndFunc   ;==>__netcode_SocketSetSafetyBufferValues
 ; y = Return = Array
 Func __netcode_SocketGetExecutionBufferValues(Const $hSocket)
 	__Trace_FuncIn("__netcode_SocketGetExecutionBufferValues", $hSocket)
-	Local $nCurrentIndex = _storageG_Read($hSocket, '_netcode_ExecutionBufferIndex')
+	Local $nCurrentIndex = _storageGO_Read($hSocket, '_netcode_ExecutionBufferIndex')
 
 	__Trace_FuncOut("__netcode_SocketGetExecutionBufferValues")
-	Return SetError($nCurrentIndex, 0, _storageG_Read($hSocket, '_netcode_ExecutionBuffer'))
+	Return SetError($nCurrentIndex, 0, _storageGO_Read($hSocket, '_netcode_ExecutionBuffer'))
 EndFunc   ;==>__netcode_SocketGetExecutionBufferValues
 
 Func __netcode_SocketSetExecutionBufferValues(Const $hSocket, $nIndex, $arBuffer)
 	__Trace_FuncIn("__netcode_SocketSetExecutionBufferValues", $hSocket, $nIndex, "$arBuffer")
-	_storageG_Overwrite($hSocket, '_netcode_ExecutionBufferIndex', $nIndex) ; hold the next expected packet ID
-	_storageG_Overwrite($hSocket, '_netcode_ExecutionBuffer', $arBuffer)
+	_storageGO_Overwrite($hSocket, '_netcode_ExecutionBufferIndex', $nIndex) ; hold the next expected packet ID
+	_storageGO_Overwrite($hSocket, '_netcode_ExecutionBuffer', $arBuffer)
 	__Trace_FuncOut("__netcode_SocketSetExecutionBufferValues")
 EndFunc   ;==>__netcode_SocketSetExecutionBufferValues
 
@@ -5716,12 +5719,12 @@ EndFunc
 Func __netcode_SocketGetEvents(Const $hSocket)
 	__Trace_FuncIn("__netcode_SocketGetEvents", $hSocket)
 	__Trace_FuncOut("__netcode_SocketGetEvents")
-	Return _storageG_Read($hSocket, '_netcode_EventStorage')
+	Return _storageGO_Read($hSocket, '_netcode_EventStorage')
 EndFunc   ;==>__netcode_SocketGetEvents
 
 Func __netcode_SocketSetEvents(Const $hSocket, $arEvents)
 	__Trace_FuncIn("__netcode_SocketSetEvents", $hSocket, "$arEvents")
-	_storageG_Overwrite($hSocket, '_netcode_EventStorage', $arEvents)
+	_storageGO_Overwrite($hSocket, '_netcode_EventStorage', $arEvents)
 	__Trace_FuncOut("__netcode_SocketSetEvents")
 EndFunc   ;==>__netcode_SocketSetEvents
 
@@ -5731,23 +5734,23 @@ EndFunc   ;==>__netcode_SocketSetEvents
 Func __netcode_SocketGetIPList(Const $hSocket)
 	__Trace_FuncIn("__netcode_SocketGetIPList", $hSocket)
 ;~ 	if __netcode_CheckSocket($hSocket) <> 1 Then Return SetError(1, 0, False) ; this isnt a parent
-	Local $bIsWhitelist = _storageG_Read($hSocket, '_netcode_IPListIsWhitelist')
+	Local $bIsWhitelist = _storageGO_Read($hSocket, '_netcode_IPListIsWhitelist')
 
 	__Trace_FuncOut("__netcode_SocketGetIPList")
-	Return SetError($bIsWhitelist, 0, _storageG_Read($hSocket, '_netcode_IPList'))
+	Return SetError($bIsWhitelist, 0, _storageGO_Read($hSocket, '_netcode_IPList'))
 EndFunc   ;==>__netcode_SocketGetIPList
 
 Func __netcode_SocketSetIPList(Const $hSocket, $arIPList, $bIsWhitelist)
 	__Trace_FuncIn("__netcode_SocketSetIPList", $hSocket, "$arIPList", $bIsWhitelist)
-	_storageG_Overwrite($hSocket, '_netcode_IPList', $arIPList)
-	_storageG_Overwrite($hSocket, '_netcode_IPListIsWhitelist', $bIsWhitelist)
+	_storageGO_Overwrite($hSocket, '_netcode_IPList', $arIPList)
+	_storageGO_Overwrite($hSocket, '_netcode_IPListIsWhitelist', $bIsWhitelist)
 	__Trace_FuncOut("__netcode_SocketSetIPList")
 EndFunc   ;==>__netcode_SocketSetIPList
 
 Func __netcode_SocketSetMyRSA(Const $hSocket, $sPrivate, $sPublic)
 	__Trace_FuncIn("__netcode_SocketSetMyRSA", $hSocket, "$sPrivate", "$sPublic")
-	_storageG_Overwrite($hSocket, '_netcode_MYRSAPrivateKey', $sPrivate)
-	_storageG_Overwrite($hSocket, '_netcode_MYRSAPubliceKey', $sPublic)
+	_storageGO_Overwrite($hSocket, '_netcode_MYRSAPrivateKey', $sPrivate)
+	_storageGO_Overwrite($hSocket, '_netcode_MYRSAPubliceKey', $sPublic)
 	__Trace_FuncOut("__netcode_SocketSetMyRSA")
 EndFunc   ;==>__netcode_SocketSetMyRSA
 
@@ -5755,100 +5758,100 @@ Func __netcode_SocketGetMyRSA(Const $hSocket, $bPrivate = True)
 	__Trace_FuncIn("__netcode_SocketGetMyRSA", $hSocket, $bPrivate)
 	__Trace_FuncOut("__netcode_SocketGetMyRSA")
 	If $bPrivate Then
-		Return _storageG_Read($hSocket, '_netcode_MYRSAPrivateKey')
+		Return _storageGO_Read($hSocket, '_netcode_MYRSAPrivateKey')
 	Else
-		Return _storageG_Read($hSocket, '_netcode_MYRSAPubliceKey')
+		Return _storageGO_Read($hSocket, '_netcode_MYRSAPubliceKey')
 	EndIf
 EndFunc   ;==>__netcode_SocketGetMyRSA
 
 Func __netcode_SocketSetOtherRSA(Const $hSocket, $sPublic)
 	__Trace_FuncIn("__netcode_SocketSetOtherRSA", $hSocket, "$sPublic")
-	_storageG_Overwrite($hSocket, '_netcode_OtherRSAPublicKey', $sPublic)
+	_storageGO_Overwrite($hSocket, '_netcode_OtherRSAPublicKey', $sPublic)
 	__Trace_FuncOut("__netcode_SocketSetOtherRSA")
 EndFunc   ;==>__netcode_SocketSetOtherRSA
 
 Func __netcode_SocketGetOtherRSA(Const $hSocket)
 	__Trace_FuncIn("__netcode_SocketGetOtherRSA", $hSocket)
 	__Trace_FuncOut("__netcode_SocketGetOtherRSA")
-	Return _storageG_Read($hSocket, '_netcode_OtherRSAPublicKey')
+	Return _storageGO_Read($hSocket, '_netcode_OtherRSAPublicKey')
 EndFunc   ;==>__netcode_SocketGetOtherRSA
 
 ; give client socket
 Func __netcode_SocketSetPacketEncryption(Const $hSocket, $bSet)
 	__Trace_FuncIn("__netcode_SocketSetPacketEncryption", $hSocket, $bSet)
-	_storageG_Overwrite($hSocket, '_netcode_SocketUsesEncryption', $bSet)
+	_storageGO_Overwrite($hSocket, '_netcode_SocketUsesEncryption', $bSet)
 	__Trace_FuncOut("__netcode_SocketSetPacketEncryption")
 EndFunc   ;==>__netcode_SocketSetPacketEncryption
 
 Func __netcode_SocketGetPacketEncryption(Const $hSocket)
 	__Trace_FuncIn("__netcode_SocketGetPacketEncryption", $hSocket)
 	__Trace_FuncOut("__netcode_SocketGetPacketEncryption")
-	Return _storageG_Read($hSocket, '_netcode_SocketUsesEncryption')
+	Return _storageGO_Read($hSocket, '_netcode_SocketUsesEncryption')
 EndFunc   ;==>__netcode_SocketGetPacketEncryption
 
 ; give client socket
 Func __netcode_SocketSetPacketEncryptionPassword(Const $hSocket, $sPW)
 	__Trace_FuncIn("__netcode_SocketSetPacketEncryptionPassword", $hSocket, "$sPW")
-	_storageG_Overwrite($hSocket, '_netcode_SocketEncryptionPassword', $sPW)
+	_storageGO_Overwrite($hSocket, '_netcode_SocketEncryptionPassword', $sPW)
 	__Trace_FuncOut("__netcode_SocketSetPacketEncryptionPassword")
 EndFunc   ;==>__netcode_SocketSetPacketEncryptionPassword
 
 Func __netcode_SocketGetPacketEncryptionPassword(Const $hSocket)
 	__Trace_FuncIn("__netcode_SocketGetPacketEncryptionPassword", $hSocket)
 	__Trace_FuncOut("__netcode_SocketGetPacketEncryptionPassword")
-	Return _storageG_Read($hSocket, '_netcode_SocketEncryptionPassword')
+	Return _storageGO_Read($hSocket, '_netcode_SocketEncryptionPassword')
 EndFunc   ;==>__netcode_SocketGetPacketEncryptionPassword
 
 Func __netcode_SocketSetIPAndPort(Const $hSocket, $sIP, $nPort)
 	__Trace_FuncIn("__netcode_SocketSetIPAndPort")
 	Local $arData[2] = [$sIP,$nPort]
-	_storageG_Overwrite($hSocket, '_netcode_IPAndPort', $arData)
+	_storageGO_Overwrite($hSocket, '_netcode_IPAndPort', $arData)
 	__Trace_FuncOut("__netcode_SocketSetIPAndPort")
 EndFunc
 
 Func __netcode_SocketGetIPAndPort(Const $hSocket)
 	__Trace_FuncIn("__netcode_SocketGetIPAndPort")
 	__Trace_FuncOut("__netcode_SocketGetIPAndPort")
-	Return _storageG_Read($hSocket, '_netcode_IPAndPort')
+	Return _storageGO_Read($hSocket, '_netcode_IPAndPort')
 EndFunc
 
 Func __netcode_SocketSetUsernameAndPassword(Const $hSocket, $sUsername, $sPassword)
 	__Trace_FuncIn("__netcode_SocketSetUsernameAndPassword")
 	Local $arData[2] = [$sUsername,$sPassword]
-	_storageG_Overwrite($hSocket, '_netcode_UsernameAndPassword', $arData)
+	_storageGO_Overwrite($hSocket, '_netcode_UsernameAndPassword', $arData)
 	__Trace_FuncOut("__netcode_SocketSetUsernameAndPassword")
 EndFunc
 
 Func __netcode_SocketGetUsernameAndPassword(Const $hSocket)
 	__Trace_FuncIn("__netcode_SocketGetUsernameAndPassword")
 	__Trace_FuncOut("__netcode_SocketGetUsernameAndPassword")
-	Return _storageG_Read($hSocket, '_netcode_UsernameAndPassword')
+	Return _storageGO_Read($hSocket, '_netcode_UsernameAndPassword')
 EndFunc
 
 Func __netcode_SocketSetHandshakeMode(Const $hSocket, $sMode)
-	_storageG_Overwrite($hSocket, '_netcode_HandhakeMode', $sMode)
+	_storageGO_Overwrite($hSocket, '_netcode_HandhakeMode', $sMode)
 EndFunc
 
 Func __netcode_SocketGetHandshakeMode(Const $hSocket)
-	Return _storageG_Read($hSocket, '_netcode_HandhakeMode')
+	Return _storageGO_Read($hSocket, '_netcode_HandhakeMode')
 EndFunc
 
 ; keys or some other info
 Func __netcode_SocketSetHandshakeExtra(Const $hSocket, $vData)
-	_storageG_Overwrite($hSocket, '_netcode_HandhakeExtra', $vData)
+	_storageGO_Overwrite($hSocket, '_netcode_HandhakeExtra', $vData)
 EndFunc
 
 Func __netcode_SocketGetHandshakeExtra(Const $hSocket)
-	Return _storageG_Read($hSocket, '_netcode_HandhakeExtra')
+	Return _storageGO_Read($hSocket, '_netcode_HandhakeExtra')
 EndFunc
 
 ; "PresharedRSAKey", "PresharedAESKey", "RandomRSA"
 Func __netcode_SocketSetHandshakeModeEnable(Const $hSocket, $sMode, $bSet)
-	_storageG_Overwrite($hSocket, '_netcode_IsHandshakeModeEnabled_' & $sMode, $bSet)
+	_storageGO_Overwrite($hSocket, '_netcode_IsHandshakeModeEnabled_' & $sMode, $bSet)
 EndFunc
 
 Func __netcode_SocketGetHandshakeModeEnable(Const $hSocket, $sMode)
-	Return _storageG_Read($hSocket, '_netcode_IsHandshakeModeEnabled_' & $sMode)
+	Return _storageGO_Read($hSocket, '_netcode_IsHandshakeModeEnabled_' & $sMode)
 EndFunc
 
 Func __netcode_SocketAddLinkID(Const $hSocket, $nLinkID, $sCallback, $vAdditionalData)
@@ -5875,7 +5878,7 @@ Func __netcode_SocketAddLinkID(Const $hSocket, $nLinkID, $sCallback, $vAdditiona
 	$arData[$nArSize][0] = $nLinkID
 	$arData[$nArSize][1] = $sCallback
 	$arData[$nArSize][2] = $vAdditionalData
-	_storageG_Overwrite($hSocket, '_netcode_LinkID', $arData)
+	_storageGO_Overwrite($hSocket, '_netcode_LinkID', $arData)
 
 	Return __Trace_FuncOut("__netcode_SocketAddLinkID", True)
 EndFunc
@@ -5883,7 +5886,7 @@ EndFunc
 Func __netcode_SocketGetLinkIDs(Const $hSocket)
 	__Trace_FuncIn("__netcode_SocketGetLinkIDs")
 	__Trace_FuncOut("__netcode_SocketGetLinkIDs")
-	Return _storageG_Read($hSocket, '_netcode_LinkID')
+	Return _storageGO_Read($hSocket, '_netcode_LinkID')
 EndFunc
 
 Func __netcode_SocketRemoveLinkID(Const $hSocket, $nLinkID)
@@ -5923,47 +5926,47 @@ EndFunc
 
 Func __netcode_SocketSetLink(Const $hSocket, $hNewSocket, $nLinkID, $sCallback, $vAdditionalData, $bSetIsLinkClient = True)
 	__Trace_FuncIn("__netcode_SocketSetLink")
-	_storageG_Overwrite($hSocket, '_netcode_Link' & $nLinkID, $hNewSocket)
-	_storageG_Overwrite($hSocket, '_netcode_LinkAdditionalData' & $nLinkID, $vAdditionalData)
-;~ 	_storageG_Overwrite($hSocket, '_netcode_LinkCallback' & $nLinkID, $sCallback)
-;~ 	_storageG_Overwrite($hNewSocket, '_netcode_Link' & $nLinkID, $hSocket)
-	_storageG_Overwrite($hNewSocket, '_netcode_LinkAdditionalData', $vAdditionalData)
-	_storageG_Overwrite($hNewSocket, '_netcode_LinkCallback', $sCallback)
-	if $bSetIsLinkClient Then _storageG_Overwrite($hNewSocket, '_netcode_IsLinkClient', $hSocket)
+	_storageGO_Overwrite($hSocket, '_netcode_Link' & $nLinkID, $hNewSocket)
+	_storageGO_Overwrite($hSocket, '_netcode_LinkAdditionalData' & $nLinkID, $vAdditionalData)
+;~ 	_storageGO_Overwrite($hSocket, '_netcode_LinkCallback' & $nLinkID, $sCallback)
+;~ 	_storageGO_Overwrite($hNewSocket, '_netcode_Link' & $nLinkID, $hSocket)
+	_storageGO_Overwrite($hNewSocket, '_netcode_LinkAdditionalData', $vAdditionalData)
+	_storageGO_Overwrite($hNewSocket, '_netcode_LinkCallback', $sCallback)
+	if $bSetIsLinkClient Then _storageGO_Overwrite($hNewSocket, '_netcode_IsLinkClient', $hSocket)
 	__Trace_FuncOut("__netcode_SocketSetLink")
 EndFunc
 
 Func __netcode_SocketGetLinkedSocket(Const $hSocket, $nLinkID = False)
 	__Trace_FuncIn("__netcode_SocketGetLinkedSocket")
 	__Trace_FuncOut("__netcode_SocketGetLinkedSocket")
-	if _storageG_Read($hSocket, '_netcode_IsLinkClient') Then
-		Return _storageG_Read($hSocket, '_netcode_IsLinkClient')
+	if _storageGO_Read($hSocket, '_netcode_IsLinkClient') Then
+		Return _storageGO_Read($hSocket, '_netcode_IsLinkClient')
 	Else
-		Return _storageG_Read($hSocket, '_netcode_Link' & $nLinkID)
+		Return _storageGO_Read($hSocket, '_netcode_Link' & $nLinkID)
 	EndIf
 EndFunc
 
 Func __netcode_SocketGetLinkedCallback(Const $hSocket, $nLinkID = False)
 	__Trace_FuncIn("__netcode_SocketGetLinkedCallback")
 	__Trace_FuncOut("__netcode_SocketGetLinkedCallback")
-	if _storageG_Read($hSocket, '_netcode_IsLinkClient') Then
-		Return _storageG_Read($hSocket, '_netcode_LinkCallback')
+	if _storageGO_Read($hSocket, '_netcode_IsLinkClient') Then
+		Return _storageGO_Read($hSocket, '_netcode_LinkCallback')
 	Else
-		Return _storageG_Read($hSocket, '_netcode_LinkCallback' & $nLinkID)
+		Return _storageGO_Read($hSocket, '_netcode_LinkCallback' & $nLinkID)
 	EndIf
 EndFunc
 
 ; currently only saves the username instead of the UID
 Func __netcode_SocketSetUser(Const $hSocket, $nUID)
 	__Trace_FuncIn("__netcode_SocketSetUser", $hSocket, $nUID)
-	_storageG_Overwrite($hSocket, '_netcode_SocketUserID', $nUID)
+	_storageGO_Overwrite($hSocket, '_netcode_SocketUserID', $nUID)
 	__Trace_FuncOut("__netcode_SocketSetUser")
 EndFunc   ;==>__netcode_SocketSetUser
 
 Func __netcode_SocketGetUser(Const $hSocket)
 	__Trace_FuncIn("__netcode_SocketGetUser", $hSocket)
 	__Trace_FuncOut("__netcode_SocketGetUser")
-	Return _storageG_Read($hSocket, '_netcode_SocketUserID')
+	Return _storageGO_Read($hSocket, '_netcode_SocketUserID')
 EndFunc   ;==>__netcode_SocketGetUser
 
 Func __netcode_SetUserDB($hSocketOrsfDB, $arUserDB)
@@ -5999,10 +6002,10 @@ Func __netcode_SetUserDB($hSocketOrsfDB, $arUserDB)
 
 	Else ; if socket
 
-		Local $sfDbPath = _storageG_Read($hSocketOrsfDB, '_netcode_UserDBPath')
+		Local $sfDbPath = _storageGO_Read($hSocketOrsfDB, '_netcode_UserDBPath')
 
 		__netcode_SetUserDB($sfDbPath, $arUserDB)
-		_storageG_Overwrite($hSocketOrsfDB, '_netcode_UserDB', $arUserDB)
+		_storageGO_Overwrite($hSocketOrsfDB, '_netcode_UserDB', $arUserDB)
 
 	EndIf
 
@@ -6083,7 +6086,7 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 	If $hListenerSocket Then ; if we want to add a client socket to this listener socket
 
 		; check if parent socket exists or if its '000'. A 000 parent socket indicates that $hSocket is from TCPConnect
-		If Not _storageG_Read($hListenerSocket, '_netcode_SocketIsListener') Then
+		If Not _storageGO_Read($hListenerSocket, '_netcode_SocketIsListener') Then
 			If $hListenerSocket = '000' Then
 				__netcode_AddSocket('000')
 			Else
@@ -6093,15 +6096,15 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 		EndIf
 
 		; check if the parent accepts more Connections, if then add one, if not return error
-		Local $nCurrentConnections = _storageG_Read($hListenerSocket, '_netcode_ListenerCurrentConnections') + 1
-		If $nCurrentConnections > _storageG_Read($hListenerSocket, '_netcode_ListenerMaxConnections') And $hListenerSocket <> '000' Then
+		Local $nCurrentConnections = _storageGO_Read($hListenerSocket, '_netcode_ListenerCurrentConnections') + 1
+		If $nCurrentConnections > _storageGO_Read($hListenerSocket, '_netcode_ListenerMaxConnections') And $hListenerSocket <> '000' Then
 			__Trace_Error(2, 0, "Rejecting socket. Parent has maximum Connections reached")
 			Return SetError(2, 0, __Trace_FuncOut("__netcode_AddSocket", False))
 		EndIf
-		_storageG_Overwrite($hListenerSocket, '_netcode_ListenerCurrentConnections', $nCurrentConnections)
+		_storageGO_Overwrite($hListenerSocket, '_netcode_ListenerCurrentConnections', $nCurrentConnections)
 
 		; get the current client array
-		Local $arClients = _storageG_Read($hListenerSocket, '_netcode_ListenerClients')
+		Local $arClients = _storageGO_Read($hListenerSocket, '_netcode_ListenerClients')
 		$nArSize = UBound($arClients)
 
 		; check if new socket is already part of this array
@@ -6117,52 +6120,52 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 		$arClients[$nArSize] = $hSocket
 
 		; write new array to storage
-		_storageG_Overwrite($hListenerSocket, '_netcode_ListenerClients', $arClients)
+		_storageGO_Overwrite($hListenerSocket, '_netcode_ListenerClients', $arClients)
 
 		; create socket group
-;~ 		_storageS_CreateGroup($hSocket)
+		_storageGO_CreateGroup($hSocket)
 
 		; set default storage vars for this new client socket
-		_storageG_Overwrite($hSocket, '_netcode_MyParent', $hListenerSocket) ; this is my parent
+		_storageGO_Overwrite($hSocket, '_netcode_MyParent', $hListenerSocket) ; this is my parent
 		__netcode_SocketSetManageMode($hSocket, 'auth') ; beginning in the auth stage - note make it optionally settable in the options
 
 		Local $arBuffer[1000][2]
-		_storageG_Overwrite($hSocket, '_netcode_SafetyBuffer', $arBuffer) ; safety buffer with 1000 elements
-		_storageG_Overwrite($hSocket, '_netcode_SafetyBufferIndex', 0) ; starting at index 0
-		_storageG_Overwrite($hSocket, '_netcode_SafetyBufferSize', 0) ; current buffer size is 0
-		_storageG_Overwrite($hSocket, '_netcode_ExecutionBuffer', $arBuffer) ; execution buffer with 1000 elements
-		_storageG_Overwrite($hSocket, '_netcode_ExecutionBufferIndex', 0) ; starting at index 0
-		_storageG_Overwrite($hSocket, '_netcode_ExecutionIndex', 0) ; execution index starts at 0
-		_storageG_Overwrite($hSocket, '_netcode_IncompletePacketBuffer', "") ; create empty incomplete packet buffer
-		_storageG_Overwrite($hSocket, '_netcode_PacketQuo', "") ; create empty packetquo buffer
-		_storageG_Overwrite($hSocket, '_netcode_PacketQuoSend', "") ; create empty packetquo buffer
-		_storageG_Overwrite($hSocket, '_netcode_PacketQuoIDQuo', "")
-		_storageG_Overwrite($hSocket, '_netcode_PacketQuoIDWait', "")
-		_storageG_Overwrite($hSocket, '_netcode_SocketExecutionOnHold', False) ; OnHold on False
-		_storageG_Overwrite($hSocket, '_netcode_PacketDynamicSize', 0) ; needs to be inherited from the parent or the server if client is from TCPConnect()
+		_storageGO_Overwrite($hSocket, '_netcode_SafetyBuffer', $arBuffer) ; safety buffer with 1000 elements
+		_storageGO_Overwrite($hSocket, '_netcode_SafetyBufferIndex', 0) ; starting at index 0
+		_storageGO_Overwrite($hSocket, '_netcode_SafetyBufferSize', 0) ; current buffer size is 0
+		_storageGO_Overwrite($hSocket, '_netcode_ExecutionBuffer', $arBuffer) ; execution buffer with 1000 elements
+		_storageGO_Overwrite($hSocket, '_netcode_ExecutionBufferIndex', 0) ; starting at index 0
+		_storageGO_Overwrite($hSocket, '_netcode_ExecutionIndex', 0) ; execution index starts at 0
+		_storageGO_Overwrite($hSocket, '_netcode_IncompletePacketBuffer', "") ; create empty incomplete packet buffer
+		_storageGO_Overwrite($hSocket, '_netcode_PacketQuo', "") ; create empty packetquo buffer
+		_storageGO_Overwrite($hSocket, '_netcode_PacketQuoSend', "") ; create empty packetquo buffer
+		_storageGO_Overwrite($hSocket, '_netcode_PacketQuoIDQuo', "")
+		_storageGO_Overwrite($hSocket, '_netcode_PacketQuoIDWait', "")
+		_storageGO_Overwrite($hSocket, '_netcode_SocketExecutionOnHold', False) ; OnHold on False
+		_storageGO_Overwrite($hSocket, '_netcode_PacketDynamicSize', 0) ; needs to be inherited from the parent or the server if client is from TCPConnect()
 		Local $arBuffer[0]
-		If Not IsArray(_storageG_Read($hSocket, '_netcode_EventStorage')) Then _storageG_Overwrite($hSocket, '_netcode_EventStorage', $arBuffer) ; create event buffer with 0 elements
+		If Not IsArray(_storageGO_Read($hSocket, '_netcode_EventStorage')) Then _storageGO_Overwrite($hSocket, '_netcode_EventStorage', $arBuffer) ; create event buffer with 0 elements
 ;~ 		Local $arBuffer[1000] ; for BytesPerSecondArray
 ;~ 		For $i = 0 To 999
 ;~ 			$arBuffer[$i] = 0
 ;~ 		Next
-		_storageG_Overwrite($hSocket, '_netcode_SendBytesPerSecond', 0)
-		_storageG_Overwrite($hSocket, '_netcode_SendBytesPerSecondTimer', TimerInit())
-		_storageG_Overwrite($hSocket, '_netcode_SendBytesPerSecondCount', 0)
-		_storageG_Overwrite($hSocket, '_netcode_RecvBytesPerSecond', 0)
-		_storageG_Overwrite($hSocket, '_netcode_RecvBytesPerSecondTimer', TimerInit())
-		_storageG_Overwrite($hSocket, '_netcode_RecvBytesPerSecondCount', 0)
-		_storageG_Overwrite($hSocket, '_netcode_SendPacketPerSecond', 0)
-		_storageG_Overwrite($hSocket, '_netcode_SendPacketPerSecondBuffer', 0)
-		_storageG_Overwrite($hSocket, '_netcode_SendPacketPerSecondTimer', TimerInit())
-		_storageG_Overwrite($hSocket, '_netcode_RecvPacketPerSecond', 0)
-		_storageG_Overwrite($hSocket, '_netcode_RecvPacketPerSecondBuffer', 0)
-		_storageG_Overwrite($hSocket, '_netcode_RecvPacketPerSecondTimer', TimerInit())
+		_storageGO_Overwrite($hSocket, '_netcode_SendBytesPerSecond', 0)
+		_storageGO_Overwrite($hSocket, '_netcode_SendBytesPerSecondTimer', TimerInit())
+		_storageGO_Overwrite($hSocket, '_netcode_SendBytesPerSecondCount', 0)
+		_storageGO_Overwrite($hSocket, '_netcode_RecvBytesPerSecond', 0)
+		_storageGO_Overwrite($hSocket, '_netcode_RecvBytesPerSecondTimer', TimerInit())
+		_storageGO_Overwrite($hSocket, '_netcode_RecvBytesPerSecondCount', 0)
+		_storageGO_Overwrite($hSocket, '_netcode_SendPacketPerSecond', 0)
+		_storageGO_Overwrite($hSocket, '_netcode_SendPacketPerSecondBuffer', 0)
+		_storageGO_Overwrite($hSocket, '_netcode_SendPacketPerSecondTimer', TimerInit())
+		_storageGO_Overwrite($hSocket, '_netcode_RecvPacketPerSecond', 0)
+		_storageGO_Overwrite($hSocket, '_netcode_RecvPacketPerSecondBuffer', 0)
+		_storageGO_Overwrite($hSocket, '_netcode_RecvPacketPerSecondTimer', TimerInit())
 
 		; inherit the parent settings
-		_storageG_Overwrite($hSocket, '_netcode_SocketSeed', _storageG_Read($hListenerSocket, '_netcode_SocketSeed')) ; inherit seed from the parent
-		_storageG_Overwrite($hSocket, '_netcode_MaxRecvBufferSize', _storageG_Read($hListenerSocket, '_netcode_MaxRecvBufferSize')) ; inherit max buffer size
-		_storageG_Overwrite($hSocket, '_netcode_DefaultRecvLen', _storageG_Read($hListenerSocket, '_netcode_DefaultRecvLen')) ; inherit default recv len
+		_storageGO_Overwrite($hSocket, '_netcode_SocketSeed', _storageGO_Read($hListenerSocket, '_netcode_SocketSeed')) ; inherit seed from the parent
+		_storageGO_Overwrite($hSocket, '_netcode_MaxRecvBufferSize', _storageGO_Read($hListenerSocket, '_netcode_MaxRecvBufferSize')) ; inherit max buffer size
+		_storageGO_Overwrite($hSocket, '_netcode_DefaultRecvLen', _storageGO_Read($hListenerSocket, '_netcode_DefaultRecvLen')) ; inherit default recv len
 		__netcode_SocketSetHandshakeMode($hSocket, __netcode_SocketGetHandshakeMode($hListenerSocket)) ; take handshake mode from parent
 		__netcode_SocketSetHandshakeExtra($hSocket, __netcode_SocketGetHandshakeExtra($hListenerSocket)) ; take handshake extra from parent
 		__netcode_SocketSetHandshakeModeEnable($hSocket, "PresharedRSAKey", __netcode_SocketGetHandshakeModeEnable($hListenerSocket, "PresharedRSAKey"))
@@ -6177,7 +6180,7 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 		Local $arEvents = __netcode_SocketGetEvents($hListenerSocket)
 		$nArSize = UBound($arEvents)
 		For $i = 0 To $nArSize - 1
-			_netcode_SetEvent($hSocket, BinaryToString($arEvents[$i]), _storageG_Read($hListenerSocket, '_netcode_Event' & $arEvents[$i]))
+			_netcode_SetEvent($hSocket, BinaryToString($arEvents[$i]), _storageGO_Read($hListenerSocket, '_netcode_Event' & $arEvents[$i]))
 		Next
 
 		Return __Trace_FuncOut("__netcode_AddSocket", True)
@@ -6186,7 +6189,7 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 	Else ; if we want to add a new listener socket
 
 		; check if parent socket already exists
-		If _storageG_Read($hSocket, '_netcode_SocketIsListener') Then
+		If _storageGO_Read($hSocket, '_netcode_SocketIsListener') Then
 			__Trace_Error(4, 0, "This Socket already exists", "", $hSocket)
 			Return SetError(4, 0, __Trace_FuncOut("__netcode_AddSocket", False)) ; it already exists
 		EndIf
@@ -6197,24 +6200,24 @@ Func __netcode_AddSocket(Const $hSocket, $hListenerSocket = False, $nIfListenerM
 		$__net_arSockets[$nArSize] = $hSocket
 
 		; create socket group
-;~ 		_storageS_CreateGroup($hSocket)
+		_storageGO_CreateGroup($hSocket)
 
 		; set default storage vars for this parent socket
-		_storageG_Overwrite($hSocket, '_netcode_SocketIsListener', True) ; this socket is a parent
-		_storageG_Overwrite($hSocket, '_netcode_ListenerMaxConnections', $nIfListenerMaxConnections) ; set how much connections we allow
-		_storageG_Overwrite($hSocket, '_netcode_ListenerCurrentConnections', 0) ; how much connections we currently have
+		_storageGO_Overwrite($hSocket, '_netcode_SocketIsListener', True) ; this socket is a parent
+		_storageGO_Overwrite($hSocket, '_netcode_ListenerMaxConnections', $nIfListenerMaxConnections) ; set how much connections we allow
+		_storageGO_Overwrite($hSocket, '_netcode_ListenerCurrentConnections', 0) ; how much connections we currently have
 		Local $arClients[0]
-		_storageG_Overwrite($hSocket, '_netcode_ListenerClients', $arClients) ; create client array with 0 elements
-		_storageG_Overwrite($hSocket, '_netcode_EventStorage', $arClients) ; create event array with 0 elements
-		_storageG_Overwrite($hSocket, '_netcode_IPList', $__net_arGlobalIPList) ; set global ip list as parent ip list
-		_storageG_Overwrite($hSocket, '_netcode_IPListIsWhitelist', $__net_bGlobalIPListIsWhitelist) ; set if ip list is white or blacklist
-		_storageG_Overwrite($hSocket, '_netcode_SocketExecutionOnHold', False) ; OnHold on False
-		_storageG_Overwrite($hSocket, '_netcode_NonBlockingConnectClients', $arClients)
+		_storageGO_Overwrite($hSocket, '_netcode_ListenerClients', $arClients) ; create client array with 0 elements
+		_storageGO_Overwrite($hSocket, '_netcode_EventStorage', $arClients) ; create event array with 0 elements
+		_storageGO_Overwrite($hSocket, '_netcode_IPList', $__net_arGlobalIPList) ; set global ip list as parent ip list
+		_storageGO_Overwrite($hSocket, '_netcode_IPListIsWhitelist', $__net_bGlobalIPListIsWhitelist) ; set if ip list is white or blacklist
+		_storageGO_Overwrite($hSocket, '_netcode_SocketExecutionOnHold', False) ; OnHold on False
+		_storageGO_Overwrite($hSocket, '_netcode_NonBlockingConnectClients', $arClients)
 
 		; inherit default options
-		_storageG_Overwrite($hSocket, '_netcode_SocketSeed', $__net_nNetcodeStringDefaultSeed) ; inherit the default seed
-		_storageG_Overwrite($hSocket, '_netcode_MaxRecvBufferSize', $__net_nMaxRecvBufferSize)
-		_storageG_Overwrite($hSocket, '_netcode_DefaultRecvLen', $__net_nDefaultRecvLen)
+		_storageGO_Overwrite($hSocket, '_netcode_SocketSeed', $__net_nNetcodeStringDefaultSeed) ; inherit the default seed
+		_storageGO_Overwrite($hSocket, '_netcode_MaxRecvBufferSize', $__net_nMaxRecvBufferSize)
+		_storageGO_Overwrite($hSocket, '_netcode_DefaultRecvLen', $__net_nDefaultRecvLen)
 		__netcode_SocketSetHandshakeMode($hSocket, "RandomRSA") ; needs to be inherited by the default options !
 ;~ 		__netcode_SocketSetHandshakeExtra($hSocket, "") ; ~ todo
 		; "PresharedRSAKey", "PresharedAESKey", "RandomRSA"
@@ -6240,12 +6243,12 @@ Func __netcode_RemoveSocket(Const $hSocket, $bIsParent = False, $bDisconnectTrig
 
 		; if the remove socket is already called, but again because the disconnected event might did it again, then return to
 		; prevent recursion issues.
-		if _storageG_Read($hSocket, '_netcode_RemovalOngoing') == True Then Return __Trace_FuncOut("__netcode_RemoveSocket", False)
-		_storageG_Overwrite($hSocket, '_netcode_RemovalOngoing', True)
+		if _storageGO_Read($hSocket, '_netcode_RemovalOngoing') == True Then Return __Trace_FuncOut("__netcode_RemoveSocket", False)
+		_storageGO_Overwrite($hSocket, '_netcode_RemovalOngoing', True)
 
 		; get my parent socket and the client array from it
-		Local $hParentSocket = _storageG_Read($hSocket, '_netcode_MyParent')
-		$arClients = _storageG_Read($hParentSocket, '_netcode_ListenerClients')
+		Local $hParentSocket = _storageGO_Read($hSocket, '_netcode_MyParent')
+		$arClients = _storageGO_Read($hParentSocket, '_netcode_ListenerClients')
 		$nArSize = UBound($arClients)
 
 		; check if the array even holds clients
@@ -6268,15 +6271,15 @@ Func __netcode_RemoveSocket(Const $hSocket, $bIsParent = False, $bDisconnectTrig
 		EndIf
 
 		; remove one connection from the active connection counter of the parent
-		Local $nCurrentConnections = _storageG_Read($hParentSocket, '_netcode_ListenerCurrentConnections') - 1
-		_storageG_Overwrite($hParentSocket, '_netcode_ListenerCurrentConnections', $nCurrentConnections)
+		Local $nCurrentConnections = _storageGO_Read($hParentSocket, '_netcode_ListenerCurrentConnections') - 1
+		_storageGO_Overwrite($hParentSocket, '_netcode_ListenerCurrentConnections', $nCurrentConnections)
 
 		; overwrite the found index with the last and ReDim the array aka remove the client socket
 		$arClients[$nIndex] = $arClients[$nArSize - 1]
 		ReDim $arClients[$nArSize - 1]
 
 		; store the new array
-		_storageG_Overwrite($hParentSocket, '_netcode_ListenerClients', $arClients)
+		_storageGO_Overwrite($hParentSocket, '_netcode_ListenerClients', $arClients)
 
 		; call disconnect event
 ;~ 		__netcode_ExecuteEvent($hSocket, "disconnected")
@@ -6286,7 +6289,7 @@ Func __netcode_RemoveSocket(Const $hSocket, $bIsParent = False, $bDisconnectTrig
 		__netcode_CryptDestroyKey(__netcode_SocketGetPacketEncryptionPassword($hSocket))
 
 		; tidy storage vars of the client socket. All vars get overwritten here with Bool False
-		_storageG_TidyGroupVars($hSocket)
+		_storageGO_DestroyGroup($hSocket)
 
 		; if parent socket is "000" and it has no more clients then remove the parent.
 		if $hParentSocket = "000" Then
@@ -6300,13 +6303,13 @@ Func __netcode_RemoveSocket(Const $hSocket, $bIsParent = False, $bDisconnectTrig
 	Else ; if we remove a parent
 
 		; check if this is actually a parent socket
-		If Not _storageG_Read($hSocket, '_netcode_SocketIsListener') Then
+		If Not _storageGO_Read($hSocket, '_netcode_SocketIsListener') Then
 			__Trace_Error(3, 0, "Wrong Socket Type. This is a Client but has to be a parent")
 			Return SetError(3, 0, __Trace_FuncOut("__netcode_RemoveSocket", False))
 		EndIf
 
 		; disconnect and remove every client of this parent
-		$arClients = _storageG_Read($hSocket, '_netcode_ListenerClients')
+		$arClients = _storageGO_Read($hSocket, '_netcode_ListenerClients')
 		$nArSize = UBound($arClients)
 		For $i = 0 To $nArSize - 1
 			__netcode_TCPCloseSocket($arClients[$i])
@@ -6332,7 +6335,7 @@ Func __netcode_RemoveSocket(Const $hSocket, $bIsParent = False, $bDisconnectTrig
 		ReDim $__net_arSockets[$nArSize - 1]
 
 		; tidy storage vars of the parent socket. All vars get overwritten here with Bool False
-		_storageG_TidyGroupVars($hSocket)
+		_storageGO_DestroyGroup($hSocket)
 
 		Return __Trace_FuncOut("__netcode_RemoveSocket", True)
 
@@ -6354,17 +6357,17 @@ Func __netcode_ParentAddNonBlockingConnectClient(Const $hParent, $hClient, $bDon
 	$arClients[$nArSize] = $hClient
 
 	; store vars
-	_storageG_Overwrite($hClient, '_netcode_Pending', True)
-	_storageG_Overwrite($hClient, '_netcode_DontAuthAsNetcode', $bDontAuthAsNetcode)
-	_storageG_Overwrite($hClient, '_netcode_TimerHandle', TimerInit())
-	_storageG_Overwrite($hClient, '_netcode_Timeout', $nTimeout)
+	_storageGO_Overwrite($hClient, '_netcode_Pending', True)
+	_storageGO_Overwrite($hClient, '_netcode_DontAuthAsNetcode', $bDontAuthAsNetcode)
+	_storageGO_Overwrite($hClient, '_netcode_TimerHandle', TimerInit())
+	_storageGO_Overwrite($hClient, '_netcode_Timeout', $nTimeout)
 
 	; already create event storage, so that the dev can already add events
 	Local $arEvents[0]
-	_storageG_Overwrite($hClient, '_netcode_EventStorage', $arEvents)
+	_storageGO_Overwrite($hClient, '_netcode_EventStorage', $arEvents)
 
 	; store new list
-	_storageG_Overwrite($hParent, '_netcode_NonBlockingConnectClients', $arClients)
+	_storageGO_Overwrite($hParent, '_netcode_NonBlockingConnectClients', $arClients)
 EndFunc
 
 Func __netcode_ParentDelNonBlockingConnectClient(Const $hParent, $hClient)
@@ -6390,13 +6393,13 @@ Func __netcode_ParentDelNonBlockingConnectClient(Const $hParent, $hClient)
 	ReDim $arClients[$nArSize - 1]
 
 	; wipe vars
-	_storageG_Overwrite($hClient, '_netcode_Pending', Null)
-	_storageG_Overwrite($hClient, '_netcode_DontAuthAsNetcode', Null)
-	_storageG_Overwrite($hClient, '_netcode_TimerHandle', Null)
-	_storageG_Overwrite($hClient, '_netcode_Timeout', Null)
+	_storageGO_DestroyVar($hClient, '_netcode_Pending')
+	_storageGO_DestroyVar($hClient, '_netcode_DontAuthAsNetcode')
+	_storageGO_DestroyVar($hClient, '_netcode_TimerHandle')
+	_storageGO_DestroyVar($hClient, '_netcode_Timeout')
 
 	; store new list
-	_storageG_Overwrite($hParent, '_netcode_NonBlockingConnectClients', $arClients)
+	_storageGO_Overwrite($hParent, '_netcode_NonBlockingConnectClients', $arClients)
 EndFunc
 
 Func __netcode_ParentCheckNonBlockingConnectClients(Const $hParent)
@@ -6425,8 +6428,8 @@ Func __netcode_ParentCheckNonBlockingConnectClients(Const $hParent)
 			; get vars
 			$arUserData = __netcode_SocketGetUsernameAndPassword($arClients[$i])
 			$arIPAndPort = __netcode_SocketGetIPAndPort($arClients[$i])
-			$bDontAuthAsNetcode = _storageG_Read($arClients[$i], '_netcode_DontAuthAsNetcode')
-			$nTimeout = _storageG_Read($arClients[$i], '_netcode_Timeout')
+			$bDontAuthAsNetcode = _storageGO_Read($arClients[$i], '_netcode_DontAuthAsNetcode')
+			$nTimeout = _storageGO_Read($arClients[$i], '_netcode_Timeout')
 
 			; delete socket from pending list
 			__netcode_ParentDelNonBlockingConnectClient($hParent, $arClients[$i])
@@ -6454,8 +6457,8 @@ Func __netcode_ParentCheckNonBlockingConnectClients(Const $hParent)
 		For $i = 0 To $nArSize - 1
 
 			; get timeout vars
-			$hTimer = _storageG_Read($arClients[$i], '_netcode_TimerHandle')
-			$nTimeout = _storageG_Read($arClients[$i], '_netcode_Timeout')
+			$hTimer = _storageGO_Read($arClients[$i], '_netcode_TimerHandle')
+			$nTimeout = _storageGO_Read($arClients[$i], '_netcode_Timeout')
 
 			; if timeouted then remove the socket and call the disconnected event
 			if TimerDiff($hTimer) > $nTimeout Then
@@ -6467,7 +6470,7 @@ Func __netcode_ParentCheckNonBlockingConnectClients(Const $hParent)
 				__netcode_ParentDelNonBlockingConnectClient($hParent, $arClients[$i])
 
 				; timeout storage wipe only ! Otherwise the event storage would be gone at that point.
-				_storageG_TidyGroupVars($arClients[$i])
+				_storageGO_DestroyGroup($arClients[$i])
 
 			EndIf
 
@@ -6486,19 +6489,19 @@ Func __netcode_ParentCheckNonBlockingConnectClients(Const $hParent)
 EndFunc
 
 Func __netcode_ParentGetNonBlockingConnectClients(Const $hParent)
-	Return _storageG_Read($hParent, '_netcode_NonBlockingConnectClients')
+	Return _storageGO_Read($hParent, '_netcode_NonBlockingConnectClients')
 EndFunc
 
 Func __netcode_ParentGetClients(Const $hSocket)
 	__Trace_FuncIn("__netcode_ParentGetClients", $hSocket)
 	__Trace_FuncOut("__netcode_ParentGetClients")
-	Return _storageG_Read($hSocket, '_netcode_ListenerClients')
+	Return _storageGO_Read($hSocket, '_netcode_ListenerClients')
 EndFunc   ;==>__netcode_ParentGetClients
 
 Func __netcode_ClientGetParent(Const $hSocket)
 	__Trace_FuncIn("__netcode_ClientGetParent", $hSocket)
 	__Trace_FuncOut("__netcode_ClientGetParent")
-	Return _storageG_Read($hSocket, '_netcode_MyParent')
+	Return _storageGO_Read($hSocket, '_netcode_MyParent')
 EndFunc   ;==>__netcode_ClientGetParent
 
 ; returns if its a parent or client
@@ -6508,12 +6511,13 @@ EndFunc   ;==>__netcode_ClientGetParent
 Func __netcode_CheckSocket(Const $hSocket)
 	__Trace_FuncIn("__netcode_CheckSocket", $hSocket)
 	__Trace_FuncOut("__netcode_CheckSocket")
-	If _storageG_Read($hSocket, '_netcode_SocketIsListener') Then Return 1
-	If _storageG_Read($hSocket, '_netcode_MyParent') Then Return 2
-	if _storageG_Read($hSocket, '_netcode_Pending') Then Return 3
+	If _storageGO_Read($hSocket, '_netcode_SocketIsListener') Then Return 1
+	If _storageGO_Read($hSocket, '_netcode_MyParent') Then Return 2
+	if _storageGO_Read($hSocket, '_netcode_Pending') Then Return 3
 	Return 0
 EndFunc   ;==>__netcode_CheckSocket
 
+; not used until the seeding system is fully implemented
 Func __netcode_Installation()
 	Local $rMSGBOX = MsgBox(64 + 4, "Installation", "Thanks for downloading the _netcode UDF. There is one Step left to setup _netcode." & @CRLF & @CRLF _
 										& "That is to set the Default Seed within the Global var $__net_nNetcodeStringDefaultSeed"  & @CRLF & @CRLF _
@@ -6561,6 +6565,9 @@ Func __netcode_Init()
 ;~ 	Else
 		$__net_hWs2_32 = DllOpen("Ws2_32.dll")
 ;~ 	EndIf
+
+	_storageGO_CreateGroup('Internal')
+
 	__netcode_CryptStartup()
 	__netcode_Seeding()
 
@@ -6618,6 +6625,8 @@ Func __netcode_Shutdown()
 	For $i = 0 To UBound($arEvents) - 1
 		_netcode_PresetEvent($arEvents[$i][0], "", False)
 	Next
+
+	_storageGO_DestroyGroup('Internal')
 
 	; close cryptography provider
 	__netcode_CryptShutdown()
@@ -6804,14 +6813,14 @@ Func __netcode_SocketSetPacketStrings(Const $hSocket, $sPacketBegin, $sPacketInt
 	$arPacketStrings[0] = $sPacketBegin
 	$arPacketStrings[1] = $sPacketInternalSplit
 	$arPacketStrings[2] = $sPacketEnd
-	_storageG_Overwrite($hSocket, '_netcode_PacketStrings', $arPacketStrings)
+	_storageGO_Overwrite($hSocket, '_netcode_PacketStrings', $arPacketStrings)
 	__Trace_FuncOut("__netcode_SocketSetPacketStrings")
 EndFunc   ;==>__netcode_SocketSetPacketStrings
 
 ; use with client socket
 Func __netcode_SocketGetPacketStrings(Const $hSocket)
 	__Trace_FuncIn("__netcode_SocketGetPacketStrings", $hSocket)
-	Local $arPacketStrings = _storageG_Read($hSocket, '_netcode_PacketStrings')
+	Local $arPacketStrings = _storageGO_Read($hSocket, '_netcode_PacketStrings')
 	If Not IsArray($arPacketStrings) Then Local $arPacketStrings[3] = [$__net_sPacketBegin, $__net_sPacketInternalSplit, $__net_sPacketEnd]
 
 	Return __Trace_FuncOut("__netcode_SocketGetPacketStrings", $arPacketStrings)
@@ -6822,11 +6831,11 @@ Func __netcode_SocketSetParamStrings(Const $hSocket, $sParamIndicatorString, $sP
 	Local $arParamStrings[2]
 	$arParamStrings[0] = $sParamIndicatorString
 	$arParamStrings[1] = $sParamSplitSeperator
-	_storageG_Overwrite($hSocket, '_netcode_ParamStrings', $arParamStrings)
+	_storageGO_Overwrite($hSocket, '_netcode_ParamStrings', $arParamStrings)
 EndFunc
 
 Func __netcode_SocketGetParamStrings(Const $hSocket)
-	Local $arParamStrings = _storageG_Read($hSocket, '_netcode_ParamStrings')
+	Local $arParamStrings = _storageGO_Read($hSocket, '_netcode_ParamStrings')
 	if Not IsArray($arParamStrings) Then Local $arParamStrings[2] = [$__net_sParamIndicatorString, $__net_sParamSplitSeperator]
 
 	Return $arParamStrings
@@ -6838,11 +6847,11 @@ Func __netcode_SocketSetSerializerStrings(Const $hSocket, $sSerializationIndicat
 	$arSerializerStrings[1] = $sSerializeArrayIndicator
 	$arSerializerStrings[2] = $sSerializeArrayYSeperator
 	$arSerializerStrings[3] = $sSerializeArrayXSeperator
-	_storageG_Overwrite($hSocket, '_netcode_SerializerStrings', $arSerializerStrings)
+	_storageGO_Overwrite($hSocket, '_netcode_SerializerStrings', $arSerializerStrings)
 EndFunc
 
 Func __netcode_SocketGetSerializerStrings(Const $hSocket)
-	Local $arSerializerStrings = _storageG_Read($hSocket, '_netcode_SerializerStrings')
+	Local $arSerializerStrings = _storageGO_Read($hSocket, '_netcode_SerializerStrings')
 	if Not IsArray($arSerializerStrings) Then Local $arSerializerStrings[4] = [$__net_sSerializationIndicator, $__net_sSerializeArrayIndicator, $__net_sSerializeArrayYSeperator, $__net_sSerializeArrayXSeperator]
 
 	Return $arSerializerStrings
@@ -6856,8 +6865,8 @@ Func __netcode_SocketSetSendBytesPerSecond(Const $hSocket, $nBytes)
 	if $nBytes = 0 Then Return __Trace_FuncOut("__netcode_SocketSetSendBytesPerSecond")
 
 	; get buffer and the second it belongs too
-	Local $nBufferSize = _storageG_Read($hSocket, '_netcode_SendBytesPerSecondCount')
-	Local $hTimer = _storageG_Read($hSocket, '_netcode_SendBytesPerSecondTimer')
+	Local $nBufferSize = _storageGO_Read($hSocket, '_netcode_SendBytesPerSecondCount')
+	Local $hTimer = _storageGO_Read($hSocket, '_netcode_SendBytesPerSecondTimer')
 
 	; if its the next second then
 	if TimerDiff($hTimer) > 1000 Then
@@ -6865,30 +6874,30 @@ Func __netcode_SocketSetSendBytesPerSecond(Const $hSocket, $nBytes)
 		; calculate how much bytes per second where send
 		Local $nBytesPerSecond = $nBufferSize
 		$nBufferSize = 0
-		_storageG_Overwrite($hSocket, '_netcode_SendBytesPerSecondCount', 0)
+		_storageGO_Overwrite($hSocket, '_netcode_SendBytesPerSecondCount', 0)
 
 		; and write said information to the storage
-		_storageG_Overwrite($hSocket, '_netcode_SendBytesPerSecond', $nBytesPerSecond)
-		_storageG_Overwrite($hSocket, '_netcode_SendBytesPerSecondTimer', TimerInit())
+		_storageGO_Overwrite($hSocket, '_netcode_SendBytesPerSecond', $nBytesPerSecond)
+		_storageGO_Overwrite($hSocket, '_netcode_SendBytesPerSecondTimer', TimerInit())
 	EndIf
 
 	; add the current send bytes to the array index of the ms it was send
 	$nBufferSize += $nBytes
 
 	; update buffer
-	_storageG_Overwrite($hSocket, '_netcode_SendBytesPerSecondCount', $nBufferSize)
+	_storageGO_Overwrite($hSocket, '_netcode_SendBytesPerSecondCount', $nBufferSize)
 	__Trace_FuncOut("__netcode_SocketSetSendBytesPerSecond")
 EndFunc
 
 ; currently only works for client sockets
 Func __netcode_SocketGetSendBytesPerSecond(Const $hSocket)
-	Local $nBytesPerSecond = _storageG_Read($hSocket, '_netcode_SendBytesPerSecond')
+	Local $nBytesPerSecond = _storageGO_Read($hSocket, '_netcode_SendBytesPerSecond')
 
 	if $nBytesPerSecond = 0 Then
 		Return 0
 	Else
 		; if the info is old as- or older then 2 seconds then return 0
-		if TimerDiff(_storageG_Read($hSocket, '_netcode_SendBytesPerSecondTimer')) > 2000 Then Return 0
+		if TimerDiff(_storageGO_Read($hSocket, '_netcode_SendBytesPerSecondTimer')) > 2000 Then Return 0
 	EndIf
 
 	Return $nBytesPerSecond
@@ -6902,8 +6911,8 @@ Func __netcode_SocketSetRecvBytesPerSecond(Const $hSocket, $nBytes)
 	if $nBytes = 0 Then Return __Trace_FuncOut("__netcode_SocketSetRecvBytesPerSecond")
 
 	; get buffer and the second it belongs too
-	Local $nBufferSize = _storageG_Read($hSocket, '_netcode_RecvBytesPerSecondCount')
-	Local $hTimer = _storageG_Read($hSocket, '_netcode_RecvBytesPerSecondTimer')
+	Local $nBufferSize = _storageGO_Read($hSocket, '_netcode_RecvBytesPerSecondCount')
+	Local $hTimer = _storageGO_Read($hSocket, '_netcode_RecvBytesPerSecondTimer')
 
 	; if its the next second then
 	if TimerDiff($hTimer) > 1000 Then
@@ -6911,29 +6920,29 @@ Func __netcode_SocketSetRecvBytesPerSecond(Const $hSocket, $nBytes)
 		; calculate how much bytes per second where received and also clean the buffer
 		Local $nBytesPerSecond = $nBufferSize
 		$nBufferSize = 0
-		_storageG_Overwrite($hSocket, '_netcode_RecvBytesPerSecondCount', 0)
+		_storageGO_Overwrite($hSocket, '_netcode_RecvBytesPerSecondCount', 0)
 
 		; and write said information to the storage
-		_storageG_Overwrite($hSocket, '_netcode_RecvBytesPerSecond', $nBytesPerSecond)
-		_storageG_Overwrite($hSocket, '_netcode_RecvBytesPerSecondTimer', TimerInit())
+		_storageGO_Overwrite($hSocket, '_netcode_RecvBytesPerSecond', $nBytesPerSecond)
+		_storageGO_Overwrite($hSocket, '_netcode_RecvBytesPerSecondTimer', TimerInit())
 	EndIf
 
 	; add the current received bytes to the array index of the ms it was received
 	$nBufferSize += $nBytes
 
 	; update buffer
-	_storageG_Overwrite($hSocket, '_netcode_RecvBytesPerSecondCount', $nBufferSize)
+	_storageGO_Overwrite($hSocket, '_netcode_RecvBytesPerSecondCount', $nBufferSize)
 	__Trace_FuncOut("__netcode_SocketSetRecvBytesPerSecond")
 EndFunc
 
 Func __netcode_SocketGetRecvBytesPerSecond(Const $hSocket)
-	Local $nBytesPerSecond = _storageG_Read($hSocket, '_netcode_RecvBytesPerSecond')
+	Local $nBytesPerSecond = _storageGO_Read($hSocket, '_netcode_RecvBytesPerSecond')
 
 	if $nBytesPerSecond = 0 Then
 		Return 0
 	Else
 		; if the info is old as- or older then 2 seconds then return 0
-		if TimerDiff(_storageG_Read($hSocket, '_netcode_RecvBytesPerSecondTimer')) > 2000 Then Return 0
+		if TimerDiff(_storageGO_Read($hSocket, '_netcode_RecvBytesPerSecondTimer')) > 2000 Then Return 0
 	EndIf
 
 	Return $nBytesPerSecond
@@ -6942,46 +6951,46 @@ EndFunc
 
 Func __netcode_SocketSetSendPacketPerSecond(Const $hSocket, $nCount)
 	__Trace_FuncIn("__netcode_SocketSetSendPacketPerSecond", $hSocket, $nCount)
-	Local $nBufferSize = _storageG_Read($hSocket, '_netcode_SendPacketPerSecondBuffer')
-	Local $hTimer = _storageG_Read($hSocket, '_netcode_SendPacketPerSecondTimer')
+	Local $nBufferSize = _storageGO_Read($hSocket, '_netcode_SendPacketPerSecondBuffer')
+	Local $hTimer = _storageGO_Read($hSocket, '_netcode_SendPacketPerSecondTimer')
 
 	if TimerDiff($hTimer) > 1000 Then
-		_storageG_Overwrite($hSocket, '_netcode_SendPacketPerSecond', $nBufferSize)
-		_storageG_Overwrite($hSocket, '_netcode_SendPacketPerSecondTimer', TimerInit())
+		_storageGO_Overwrite($hSocket, '_netcode_SendPacketPerSecond', $nBufferSize)
+		_storageGO_Overwrite($hSocket, '_netcode_SendPacketPerSecondTimer', TimerInit())
 		$nBufferSize = 0
 	EndIf
 
 	$nBufferSize += $nCount
-	_storageG_Overwrite($hSocket, '_netcode_SendPacketPerSecondBuffer', $nBufferSize)
+	_storageGO_Overwrite($hSocket, '_netcode_SendPacketPerSecondBuffer', $nBufferSize)
 	__Trace_FuncOut("__netcode_SocketSetSendPacketPerSecond")
 EndFunc
 
 Func __netcode_SocketGetSendPacketPerSecond(Const $hSocket)
-	if TimerDiff(_storageG_Read($hSocket, '_netcode_SendPacketPerSecondTimer')) > 2000 Then Return 0
+	if TimerDiff(_storageGO_Read($hSocket, '_netcode_SendPacketPerSecondTimer')) > 2000 Then Return 0
 
-	Return _storageG_Read($hSocket, '_netcode_SendPacketPerSecond')
+	Return _storageGO_Read($hSocket, '_netcode_SendPacketPerSecond')
 EndFunc
 
 Func __netcode_SocketSetRecvPacketPerSecond(Const $hSocket, $nCount)
 	__Trace_FuncIn("__netcode_SocketSetRecvPacketPerSecond", $hSocket, $nCount)
-	Local $nBufferSize = _storageG_Read($hSocket, '_netcode_RecvPacketPerSecondBuffer')
-	Local $hTimer = _storageG_Read($hSocket, '_netcode_RecvPacketPerSecondTimer')
+	Local $nBufferSize = _storageGO_Read($hSocket, '_netcode_RecvPacketPerSecondBuffer')
+	Local $hTimer = _storageGO_Read($hSocket, '_netcode_RecvPacketPerSecondTimer')
 
 	if TimerDiff($hTimer) > 1000 Then
-		_storageG_Overwrite($hSocket, '_netcode_RecvPacketPerSecond', $nBufferSize)
-		_storageG_Overwrite($hSocket, '_netcode_RecvPacketPerSecondTimer', TimerInit())
+		_storageGO_Overwrite($hSocket, '_netcode_RecvPacketPerSecond', $nBufferSize)
+		_storageGO_Overwrite($hSocket, '_netcode_RecvPacketPerSecondTimer', TimerInit())
 		$nBufferSize = 0
 	EndIf
 
 	$nBufferSize += $nCount
-	_storageG_Overwrite($hSocket, '_netcode_RecvPacketPerSecondBuffer', $nBufferSize)
+	_storageGO_Overwrite($hSocket, '_netcode_RecvPacketPerSecondBuffer', $nBufferSize)
 	__Trace_FuncOut("__netcode_SocketSetRecvPacketPerSecond")
 EndFunc
 
 Func __netcode_SocketGetRecvPacketPerSecond(Const $hSocket)
-	if TimerDiff(_storageG_Read($hSocket, '_netcode_RecvPacketPerSecondTimer')) > 2000 Then Return 0
+	if TimerDiff(_storageGO_Read($hSocket, '_netcode_RecvPacketPerSecondTimer')) > 2000 Then Return 0
 
-	Return _storageG_Read($hSocket, '_netcode_RecvPacketPerSecond')
+	Return _storageGO_Read($hSocket, '_netcode_RecvPacketPerSecond')
 EndFunc
 
 ; this functions only sets the var type, it doesnt convert the data
@@ -7195,7 +7204,7 @@ Func __netcode_TCPSend($hSocket, $sData, $bReturnWhenDone = True) ; TCPSend
 	Until $nError <> 1400
 
 	; check the error
-	If $nError And $arRet[0] = -1 Then
+	If $nError And $arRet[0] == -1 Then
 
 		; if it wasnt the "Would Block" error then log it
 		if $nError <> 10035 Then __Trace_Error($nError, 0)

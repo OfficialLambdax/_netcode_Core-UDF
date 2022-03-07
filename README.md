@@ -1,8 +1,6 @@
 # _netcode_Core-UDF
 a extended event based TCP/IP (IPv4/6) libary for Autoit3 (Support for Win XP, Vista, 7, 8, 8.1, 10 and Linux - X32 and X64 - Autoit Stable and Beta)
 
-! AutoIt v3.3.16.0 and Beta v3.3.15.5 does not work, duo to a bug with SRandom() !
-
 First of all. This Libary (commonly referred as UDF for User Defined Functions) is neither yet Alpha nor Beta or Stable. The libary is still in its Concept Creation Phase. This means that features are missing eg. IPv6, TLS, Double Ratchet and that already included systems and features require complete overhauls. If you are going to use this UDF then expect alot of script breaking changes with updates and incomaptibilities wih older versions. In such a event the changelog will provide information about that and what to change. Also, because of the amount of changes that still need to be made, the UDF has no documentation yet.
 
 If you already worked with event based libaries then it should be easy to get into this libary. And you can get a basic understanding on how to use this UDF from the variety of examples in the examples folder.
@@ -31,14 +29,8 @@ features that wouldnt work with the default functions.
 Additional information can be read within the Concept Plan.
 
 Required libaries
-The _storageS-UDF from https://github.com/OfficialLambdax/_storageS-UDF
+- _storageS-UDF from https://github.com/OfficialLambdax/_storageS-UDF v0.1.5.3 or later.
 
-There are also addons
+The entire Project can be found here
+- https://github.com/OfficialLambdax/_netcode-UDF
 
-https://github.com/OfficialLambdax/_netcode_Router-UDF
-
-https://github.com/OfficialLambdax/_netcode_Proxy-UDF
-
-https://github.com/OfficialLambdax/_netcode_Relay-UDF
-
-Why do i develop addons before i finish the Core? Because i yet have to figure out what all needs to be in the Core to make the Addons work smooth without much additional code or Core code replacements.
